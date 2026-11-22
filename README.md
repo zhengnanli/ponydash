@@ -26,6 +26,15 @@ the raw ELM327 traffic scrolling by.
 - **Matrix view:** all ~38 channels at once, each with a sparkline and
   min/max, plus a friction circle, 12-second lateral/longitudinal G graph and
   peak G values.
+- **Zoomed plots:** tap any Matrix cell for a full-screen plot of that
+  channel over the last 1, 5, 15 or 60 minutes, with min/avg/max and axis
+  scales.
+- **Flight recorder:** the last hour of driving is always on disk. Every
+  100 ms while the car is sending data, one CSV row holds every channel (in
+  the car's metric units) and the G-meter; a matching log holds app events
+  and the raw ELM327 traffic. Time with the car off does not count toward the
+  hour. **save hour** on the Matrix view merges it into
+  `Download/PonyDash/ponydash_<time>.csv` and `…_events.txt`.
 - **Metric or imperial**, switched from the top bar (°C/°F, kPa or bar/psi,
   km/mi, L/100 km or mpg).
 - **Bluetooth LE ELM327** link that finds the adapter's serial service
@@ -74,6 +83,16 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Needs JDK 17+ and the Android SDK (compileSdk 36). On first launch, grant the
 Bluetooth permissions, tap the status chip and pick the adapter with the
 ignition on.
+
+## Getting the recordings
+
+```sh
+adb pull /sdcard/Download/PonyDash/                                  # saved with "save hour"
+adb pull /sdcard/Android/data/dev.ponydash/files/flight/             # rolling 5-minute segments
+```
+
+Columns are named `key[unit]`, e.g. `rpm[rpm]`, `map_kpa[kPa]`, `g_lat[g]`;
+an empty cell means the car had not reported that channel.
 
 ## Safety
 

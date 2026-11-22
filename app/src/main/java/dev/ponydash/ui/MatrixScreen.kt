@@ -29,6 +29,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.ponydash.DashViewModel
@@ -89,6 +92,9 @@ fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit) {
     val rate by vm.pollRate.collectAsState()
     val conn by vm.conn.collectAsState()
     val metric by vm.metric.collectAsState()
+    val recMs by vm.recorder.storedMs.collectAsState()
+    val exportMsg by vm.exportMsg.collectAsState()
+    var zoom by remember { mutableStateOf<String?>(null) }
 
     val shown = Pids.channels.filter { it.key in values }
 
@@ -105,8 +111,17 @@ fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit) {
                     Text(
                         "${shown.size} ch · %.1f req/s · ${conn.link.name.lowercase()} ${conn.device ?: ""}".format(rate),
                         color = M.Mid, fontSize = 15.sp, fontFamily = M.Mono,
+                        maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        exportMsg ?: "● rec ${recMs / 60_000}m",
+                        color = if (exportMsg != null) M.Green else M.Mid, fontSize = 13.sp, fontFamily = M.Mono, maxLines = 1,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    MChip("save hour", vm::exportLastHour)
+                    Spacer(Modifier.width(10.dp))
                     MChip("reset min/max", vm::resetExtremes)
                     Spacer(Modifier.width(10.dp))
                     MChip("[ dash ]", onClose)
@@ -122,7 +137,7 @@ fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(shown, key = { it.key }) { ch ->
-                        MatrixCell(ch, values[ch.key], hist[ch.key], ext[ch.key], metric)
+                        MatrixCell(ch, values[ch.key], hist[ch.key], ext[ch.key], metric) { zoom = ch.key }
                     }
                 }
             }
@@ -132,13 +147,17 @@ fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit) {
                 Terminal(traffic, conn.link, Modifier.fillMaxWidth().weight(1f))
             }
         }
+        zoom?.let { key -> Pids.channelByKey[key] }?.let { ch ->
+            ZoomPanel(vm, ch, values[ch.key], metric) { zoom = null }
+        }
     }
 }
 
 @Composable
-private fun MatrixCell(ch: Channel, v: Double?, hist: List<Float>?, mm: Pair<Double, Double>?, metric: Boolean) {
+private fun MatrixCell(ch: Channel, v: Double?, hist: List<Float>?, mm: Pair<Double, Double>?, metric: Boolean, onClick: () -> Unit) {
     Column(
         Modifier
+            .clickableNoRipple(onClick)
             .background(M.Cell, RoundedCornerShape(6.dp))
             .border(1.dp, M.Faint, RoundedCornerShape(6.dp))
             .padding(horizontal = 12.dp, vertical = 9.dp),
@@ -212,6 +231,8 @@ private fun MChip(text: String, onClick: () -> Unit) {
         color = M.Green,
         fontSize = 14.sp,
         fontFamily = M.Mono,
+        maxLines = 1,
+        softWrap = false,
         modifier = Modifier
             .border(1.dp, M.Mid, RoundedCornerShape(4.dp))
             .clickableNoRipple(onClick)
@@ -219,12 +240,12 @@ private fun MChip(text: String, onClick: () -> Unit) {
     )
 }
 
-/** Low-key digital rain behind the data, ~20 fps. */
+/** Low-key digital rain behind the data, ~10 fps (it was a noticeable share of the drawing cost at 20). */
 @Composable
 private fun DigitalRain(modifier: Modifier) {
     val glyphs = remember { "0123456789ABCDEFｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜ".toCharArray() }
     val tick = remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) { while (true) { delay(50); tick.longValue++ } }
+    LaunchedEffect(Unit) { while (true) { delay(100); tick.longValue++ } }
     val state = remember { RainState() }
     val paint = remember {
         Paint().apply { typeface = Typeface.MONOSPACE; isAntiAlias = true; color = M.Green.toArgb() }
@@ -239,7 +260,7 @@ private fun DigitalRain(modifier: Modifier) {
         drawIntoCanvas { c ->
             val nc = c.nativeCanvas
             for (x in 0 until cols) {
-                state.heads[x] += state.speeds[x]
+                state.heads[x] += state.speeds[x] * 2
                 if (state.heads[x] - 18 > rows) {
                     state.heads[x] = -Random.nextInt(0, rows).toFloat()
                     state.speeds[x] = Random.nextFloat() * 0.5f + 0.25f
@@ -352,6 +373,176 @@ private fun GPanel(g: GForce, onZero: () -> Unit, modifier: Modifier) {
             Text("— lon", color = lon, fontSize = 11.sp, fontFamily = M.Mono)
             Spacer(Modifier.weight(1f))
             Text("±1 g · 12 s", color = M.Dim, fontSize = 11.sp, fontFamily = M.Mono)
+        }
+    }
+}
+
+private val ZOOM_SPANS = listOf(
+    Triple("1 min", 60_000L, 10_000L),
+    Triple("5 min", 5 * 60_000L, 60_000L),
+    Triple("15 min", 15 * 60_000L, 3 * 60_000L),
+    Triple("60 min", 60 * 60_000L, 10 * 60_000L),
+)
+
+/** A round step near [raw]: 1, 2, 2.5 or 5 × 10ⁿ. */
+private fun niceStep(raw: Double): Double {
+    if (raw <= 0) return 1.0
+    val p = Math.pow(10.0, kotlin.math.floor(kotlin.math.log10(raw)))
+    val f = raw / p
+    return p * when {
+        f <= 1 -> 1.0
+        f <= 2 -> 2.0
+        f <= 2.5 -> 2.5
+        f <= 5 -> 5.0
+        else -> 10.0
+    }
+}
+
+/** One channel, full screen, over the last 1–60 minutes from the flight recorder. */
+@Composable
+private fun ZoomPanel(vm: DashViewModel, ch: Channel, now: Double?, metric: Boolean, onClose: () -> Unit) {
+    var span by remember { mutableStateOf(ZOOM_SPANS[1]) }
+    var series by remember(ch.key) { mutableStateOf(dev.ponydash.Series.EMPTY) }
+    LaunchedEffect(ch.key, span) {
+        while (true) {
+            series = vm.recorder.series(ch.key, span.second)
+            delay(500)
+        }
+    }
+    val unit = display(ch, 0.0, metric).second
+    val dec = display(ch, 0.0, metric).third
+    // display units, NaN kept as gaps
+    val ys = FloatArray(series.v.size) { i ->
+        val x = series.v[i]
+        if (x.isNaN()) Float.NaN else display(ch, x.toDouble(), metric).first.toFloat()
+    }
+    val finite = ys.filter { !it.isNaN() }
+    val lo = finite.minOrNull()
+    val hi = finite.maxOrNull()
+    val avg = if (finite.isEmpty()) null else finite.average()
+    val labelPaint = remember {
+        Paint().apply { typeface = Typeface.MONOSPACE; isAntiAlias = true; color = M.Mid.toArgb() }
+    }
+
+    Box(Modifier.fillMaxSize().background(Color(0xD9000000)).clickableNoRipple(onClose)) {
+        Column(
+            Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.94f)
+                .fillMaxHeight(0.9f)
+                .background(Color(0xF7010603), RoundedCornerShape(8.dp))
+                .border(1.dp, M.Mid, RoundedCornerShape(8.dp))
+                .clickableNoRipple {}
+                .padding(20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Column {
+                    Text(ch.label.uppercase(), color = M.Mid, fontSize = 16.sp, fontFamily = M.Mono)
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            now?.let { fmt(display(ch, it, metric).first, dec) } ?: "----",
+                            style = TextStyle(color = M.Green, fontSize = 54.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
+                        )
+                        Text(" $unit", color = M.Mid, fontSize = 20.sp, fontFamily = M.Mono, modifier = Modifier.padding(bottom = 10.dp))
+                    }
+                }
+                Spacer(Modifier.width(28.dp))
+                Column(Modifier.padding(bottom = 10.dp)) {
+                    val s = { x: Double? -> x?.let { fmt(it, dec) } ?: "--" }
+                    Text("min ${s(lo?.toDouble())}   avg ${s(avg)}   max ${s(hi?.toDouble())}", color = M.Green, fontSize = 16.sp, fontFamily = M.Mono)
+                    Text("${finite.size} samples · 10 Hz raw · last ${span.first}", color = M.Dim, fontSize = 13.sp, fontFamily = M.Mono)
+                }
+                Spacer(Modifier.weight(1f))
+                Row(Modifier.padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (sp in ZOOM_SPANS) {
+                        Text(
+                            sp.first,
+                            color = if (sp == span) M.Bg else M.Green,
+                            fontSize = 15.sp,
+                            fontFamily = M.Mono,
+                            modifier = Modifier
+                                .background(if (sp == span) M.Green else Color.Transparent, RoundedCornerShape(4.dp))
+                                .border(1.dp, M.Mid, RoundedCornerShape(4.dp))
+                                .clickableNoRipple { span = sp }
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    MChip("[ close ]", onClose)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Canvas(Modifier.fillMaxWidth().weight(1f)) {
+                labelPaint.textSize = 15.sp.toPx()
+                val left = 86.dp.toPx()
+                val bottom = size.height - 26.dp.toPx()
+                val right = size.width - 8.dp.toPx()
+                val top = 6.dp.toPx()
+                val w = right - left
+                val h = bottom - top
+
+                // y range with a little headroom; flat signals get a ±1-unit band
+                var yLo = (lo ?: 0f).toDouble()
+                var yHi = (hi ?: 1f).toDouble()
+                if (yHi - yLo < 1e-6) { yLo -= 1; yHi += 1 }
+                val pad = (yHi - yLo) * 0.08
+                yLo -= pad; yHi += pad
+                val step = niceStep((yHi - yLo) / 7)
+                fun yOf(v: Double) = (bottom - (v - yLo) / (yHi - yLo) * h).toFloat()
+
+                drawIntoCanvas { c ->
+                    val nc = c.nativeCanvas
+                    labelPaint.textAlign = Paint.Align.RIGHT
+                    var gy = kotlin.math.ceil(yLo / step) * step
+                    val yDec = if (step >= 1) 0 else kotlin.math.ceil(-kotlin.math.log10(step)).toInt().coerceAtMost(4)
+                    while (gy <= yHi) {
+                        val y = yOf(gy)
+                        drawLine(M.Faint, Offset(left, y), Offset(right, y), 1.5f)
+                        nc.drawText(fmt(gy, yDec), left - 10.dp.toPx(), y + labelPaint.textSize / 3, labelPaint)
+                        gy += step
+                    }
+                    // time axis: newest at the right edge
+                    labelPaint.textAlign = Paint.Align.CENTER
+                    val spanMs = span.second
+                    var tk = 0L
+                    while (tk <= spanMs) {
+                        val x = right - w * tk / spanMs
+                        drawLine(M.Faint, Offset(x, top), Offset(x, bottom), 1f)
+                        val lbl = if (tk == 0L) "now" else if (tk % 60_000L == 0L) "-${tk / 60_000}m" else "-${tk / 1000}s"
+                        nc.drawText(lbl, x.coerceIn(left + 20f, right - 20f), size.height - 4.dp.toPx(), labelPaint)
+                        tk += span.third
+                    }
+                }
+                drawLine(M.Dim, Offset(left, top), Offset(left, bottom), 2f)
+                drawLine(M.Dim, Offset(left, bottom), Offset(right, bottom), 2f)
+
+                val t = series.t
+                if (t.isEmpty()) return@Canvas
+                val tNow = System.currentTimeMillis()
+                val path = Path()
+                var pen = false
+                var prevT = 0L
+                var lastPt: Offset? = null
+                for (i in t.indices) {
+                    val v = ys[i]
+                    if (v.isNaN()) { pen = false; continue }
+                    val x = right - w * (tNow - t[i]).toFloat() / span.second
+                    if (x < left) continue
+                    val y = yOf(v.toDouble())
+                    // break the line across recording gaps (car off, link drop)
+                    if (!pen || t[i] - prevT > 2_000) path.moveTo(x, y) else path.lineTo(x, y)
+                    pen = true
+                    prevT = t[i]
+                    lastPt = Offset(x, y)
+                }
+                drawPath(path, M.Green, style = Stroke(2.5f))
+                lastPt?.let { drawCircle(M.Green, 6f, it) }
+                avg?.let {
+                    val y = yOf(it)
+                    drawLine(M.Mid.copy(alpha = 0.6f), Offset(left, y), Offset(right, y), 1.5f,
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 10f)))
+                }
+            }
         }
     }
 }

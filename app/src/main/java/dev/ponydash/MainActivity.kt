@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        lowRefreshRate()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -65,6 +66,29 @@ class MainActivity : ComponentActivity() {
                 if (showConnect) ConnectDialog(vm) { showConnect = false }
             }
         }
+    }
+
+    /**
+     * The screen is ~93% of this app's power. Data changes a few times a second,
+     * so ask for the panel's slowest mode at or above 30 Hz instead of 120 Hz.
+     */
+    private fun lowRefreshRate() {
+        val d = display ?: return
+        val cur = d.mode
+        val mode = d.supportedModes
+            .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight && it.refreshRate >= 29.5f }
+            .minByOrNull { it.refreshRate } ?: return
+        window.attributes = window.attributes.apply { preferredDisplayModeId = mode.modeId }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        vm.onForeground()
+    }
+
+    override fun onStop() {
+        vm.onBackground()
+        super.onStop()
     }
 
     private fun hasPerms() = perms.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }

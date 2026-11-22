@@ -65,6 +65,28 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     val gmeter = GMeter(app)
 
+    /** Last hour of every channel, on disk and in memory. */
+    val recorder = FlightRecorder(app, viewModelScope, values, gmeter.state, conn)
+    val exportMsg = MutableStateFlow<String?>(null)
+
+    fun exportLastHour() {
+        viewModelScope.launch {
+            exportMsg.value = "saving…"
+            val msg = try {
+                recorder.exportLastHour().also { logLine(it) }
+                "saved → Download/PonyDash"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logLine("Save failed: ${e.message}")
+                "save failed"
+            }
+            exportMsg.value = msg
+            delay(8_000)
+            if (exportMsg.value == msg) exportMsg.value = null
+        }
+    }
+
     /** Raw adapter traffic, newest last (for the Matrix view). */
     val traffic = MutableStateFlow<List<String>>(emptyList())
     private val trafficBuf = ArrayDeque<String>()
@@ -81,6 +103,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     private var rateT0 = 0L
 
     private fun onTraffic(cmd: String, resp: String) {
+        recorder.event("> $cmd")
+        resp.lines().forEach { if (it.isNotBlank()) recorder.event("< $it") }
         synchronized(trafficBuf) {
             trafficBuf.addLast("> $cmd")
             resp.lines().forEach { trafficBuf.addLast("< $it") }
@@ -143,6 +167,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     fun logLine(s: String) {
         android.util.Log.i("PonyDash", s)
+        recorder.event(s)
         val line = "${timeFmt.format(Date())}  $s"
         _log.update { (it + line).takeLast(400) }
     }
@@ -295,6 +320,38 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 values.value = emptyMap()
                 delay(if (attempt < 3) 3_000 else 10_000)
             }
+        }
+    }
+
+    // ---------- background ----------
+
+    private var bgJob: Job? = null
+    private var pausedAddr: Pair<String, String>? = null
+
+    /** Out of sight for a minute: drop the adapter so Bluetooth and the CPU can sleep. */
+    fun onBackground() {
+        bgJob?.cancel()
+        bgJob = viewModelScope.launch {
+            delay(60_000)
+            val addr = savedDevice
+            if (addr != null && conn.value.link != Link.SIM && conn.value.link != Link.IDLE) {
+                pausedAddr = addr to (prefs.getString("name", null) ?: addr)
+                logLine("In background for a minute; pausing the OBD link")
+            }
+            stopSource()
+            conn.value = ConnState(Link.IDLE, "Paused")
+        }
+    }
+
+    fun onForeground() {
+        bgJob?.cancel()
+        bgJob = null
+        if (sourceJob != null) return
+        val p = pausedAddr
+        pausedAddr = null
+        when {
+            p != null -> connect(p.first, p.second)
+            conn.value.detail == "Paused" -> startSim()
         }
     }
 
