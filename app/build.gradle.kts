@@ -1,6 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+// Release signing comes from a properties file outside the repo
+// (default ~/.config/ponydash/signing.properties, override with PONYDASH_SIGNING).
+// Without it, release builds are left unsigned.
+val signingProps = Properties().apply {
+    val path = System.getenv("PONYDASH_SIGNING")
+        ?: "${System.getProperty("user.home")}/.config/ponydash/signing.properties"
+    val f = file(path)
+    if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -13,6 +25,26 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1"
+    }
+
+    signingConfigs {
+        if (!signingProps.isEmpty) {
+            create("release") {
+                storeFile = file(signingProps.getProperty("storeFile"))
+                storePassword = signingProps.getProperty("storePassword")
+                keyAlias = signingProps.getProperty("keyAlias")
+                keyPassword = signingProps.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            if (!signingProps.isEmpty) signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     compileOptions {
