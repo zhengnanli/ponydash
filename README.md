@@ -12,13 +12,24 @@ iCar Pro 2S adapter and a OnePlus Pad 3 running LineageOS.
 
 ## Matrix view
 
-Every reading the car reports, with sparklines, min/max, a G-force panel and
+The home screen. Every reading the car reports, with sparklines, min/max, a G-force panel and
 the raw ELM327 traffic scrolling by.
 
 ![Matrix view](docs/matrix.jpg)
 
 ## Features
 
+- **Race screen:** built to be read in a half-second glance. Shift lights
+  (4,000–6,000 rpm, flashing at 6,300), the current gear in huge type with
+  speed and rpm under it, and where the rpm lands after the next upshift.
+  Also pedal and braking bars, boost with a peak-hold tick, automatic
+  0–100 km/h (0–60 mph) and 100–0 (60–0) timers with saved personal bests,
+  and a health strip that stays quiet until oil, coolant, trans, charge air,
+  mixture or voltage goes wrong, then names the problem in red. The car
+  reports no gear, so the gear comes from rpm ÷ speed against the 10R80
+  ratios and 3.15 axle (fitted to a real drive). Braking comes from the
+  accelerometer, since there is no brake-pressure PID. Hold a timer card to
+  clear its personal best.
 - **Dashboard:** transmission temp (or oil temp, on cars that report it), boost,
   G-meter, coolant, intake air, battery, knock retard, RPM/speed, trip
   distance and economy, tire pressures, fuel level and trouble-code count.

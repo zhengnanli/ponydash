@@ -72,14 +72,14 @@ private object M {
     val Bg get() = shade(0.96f)
     val Green get() = ink
     val Mid get() = shade(0.3f)
-    val Dim get() = shade(if (light) 0.5f else 0.63f)
+    val Dim get() = shade(if (light) 0.5f else 0.48f)
     val Faint get() = shade(if (light) 0.72f else 0.8f)
-    val Cell get() = shade(if (light) 0.985f else 0.93f).copy(alpha = 0.85f)
+    val Cell get() = shade(if (light) 0.985f else 0.93f).copy(alpha = 0.93f)
     val Panel get() = shade(0.985f).copy(alpha = 0.92f)
     val Scrim get() = ground.copy(alpha = if (light) 0.6f else 0.85f)
     /** Second trace colour (longitudinal g). */
     val Alt get() = lerp(ink, if (light) Color.Black else Color.White, 0.45f)
-    val RainAlpha get() = if (light) 0.6f else 1f
+    val RainAlpha get() = if (light) 0.6f else 0.75f
     val Mono get() = Fonts.Mono
     val glow get() = if (light) Shadow(Color.Transparent, Offset.Zero, 0f) else Shadow(C.Matrix, Offset.Zero, 14f)
 }
@@ -87,7 +87,9 @@ private object M {
 /** Convert a stored (metric) value for display; returns value, unit, decimals. */
 private fun display(ch: Channel, v: Double, metric: Boolean): Triple<Double, String, Int> = when (ch.kind) {
     Kind.TEMP -> if (metric) Triple(v, "°C", 0) else Triple(cToF(v), "°F", 0)
-    Kind.PRESSURE -> if (metric) Triple(v, "kPa", 0) else Triple(kpaToPsi(v), "psi", 1)
+    // bar / psi everywhere in the app; fuel-rail pressure is ~50–200 bar, so whole numbers
+    Kind.PRESSURE -> if (metric) Triple(v / 100, "bar", if (ch.key == "rail_kpa") 0 else 2)
+                     else Triple(kpaToPsi(v), "psi", if (ch.key == "rail_kpa") 0 else 1)
     Kind.SPEED -> if (metric) Triple(v, "km/h", 0) else Triple(kmhToMph(v), "mph", 0)
     Kind.DISTANCE -> if (metric) Triple(v, "km", ch.decimals) else Triple(v * 0.621371, "mi", ch.decimals)
     Kind.PLAIN -> Triple(v, ch.unit, ch.decimals)
@@ -96,7 +98,7 @@ private fun display(ch: Channel, v: Double, metric: Boolean): Triple<Double, Str
 private fun fmt(v: Double, d: Int) = "%.${d}f".format(v)
 
 @Composable
-fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit) {
+fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit, onRace: () -> Unit) {
     val values by vm.values.collectAsState()
     val hist by vm.history.collectAsState()
     val ext by vm.extremes.collectAsState()
@@ -114,7 +116,10 @@ fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit) {
         val narrow = maxWidth < 1150.dp
         DigitalRain(Modifier.fillMaxSize())
         Column(Modifier.fillMaxSize().padding(if (narrow) 10.dp else 16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.background(M.Bg.copy(alpha = 0.9f), RoundedCornerShape(6.dp)).padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     "PONYDASH://OBD",
                     style = TextStyle(textMotion = Fonts.motion, color = M.Green, fontSize = if (narrow) 18.sp else 26.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
@@ -137,28 +142,39 @@ fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 MChip(if (narrow) "reset" else "reset min/max", vm::resetExtremes)
                 Spacer(Modifier.width(8.dp))
-                MChip("[ dash ]", onClose)
+                MChip("[race]", onRace)
+                Spacer(Modifier.width(8.dp))
+                MChip("[dash]", onClose)
             }
             Spacer(Modifier.height(if (narrow) 8.dp else 12.dp))
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (narrow) 10.dp else 14.dp)) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     if (shown.isEmpty()) {
-                        Text("waiting for data…", color = M.Mid, fontSize = 18.sp, fontFamily = M.Mono)
+                        Text(
+                            when (conn.link) {
+                                Link.CONNECTING -> "connecting to the adapter…"
+                                Link.RETRYING -> "no data · obd: ${conn.detail}"
+                                Link.IDLE -> "no data · not connected"
+                                else -> "waiting for data…"
+                            },
+                            color = M.Green, fontSize = 18.sp, fontFamily = M.Mono,
+                            modifier = Modifier.background(M.Bg.copy(alpha = 0.9f), RoundedCornerShape(6.dp)).border(1.dp, M.Dim, RoundedCornerShape(6.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
+                        )
                     }
                     LazyVerticalGrid(
-                        GridCells.Adaptive(if (narrow) 170.dp else 205.dp),
+                        GridCells.Adaptive(if (narrow) 225.dp else 290.dp),
                         Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         items(shown, key = { it.key }) { ch ->
-                            MatrixCell(ch, values[ch.key], hist[ch.key], ext[ch.key], metric) { zoom = ch.key }
+                            MatrixCell(ch, values[ch.key], hist[ch.key], ext[ch.key], metric, narrow) { zoom = ch.key }
                         }
                     }
                 }
-                Column(Modifier.width(if (narrow) 270.dp else 330.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.width(if (narrow) 250.dp else 330.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val g by vm.gmeter.state.collectAsState()
-                    GPanel(g, vm.gmeter::calibrate, Modifier.fillMaxWidth())
+                    GPanel(g, vm.gmeter::calibrate, narrow, Modifier.fillMaxWidth())
                     Terminal(traffic, conn.link, Modifier.fillMaxWidth().weight(1f))
                 }
             }
@@ -170,24 +186,25 @@ fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit) {
 }
 
 @Composable
-private fun MatrixCell(ch: Channel, v: Double?, hist: List<Float>?, mm: Pair<Double, Double>?, metric: Boolean, onClick: () -> Unit) {
+private fun MatrixCell(ch: Channel, v: Double?, hist: List<Float>?, mm: Pair<Double, Double>?, metric: Boolean, narrow: Boolean, onClick: () -> Unit) {
     Column(
         Modifier
             .clickableNoRipple(onClick)
             .background(M.Cell, RoundedCornerShape(6.dp))
             .border(1.dp, M.Faint, RoundedCornerShape(6.dp))
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
-        Text(ch.label.uppercase(), color = M.Mid, fontSize = 12.sp, fontFamily = M.Mono, maxLines = 1)
+        Text(ch.label.uppercase(), color = M.Mid, fontSize = if (narrow) 14.sp else 16.sp, fontFamily = M.Mono, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Row(verticalAlignment = Alignment.Bottom) {
             val (dv, unit, dec) = if (v != null) display(ch, v, metric) else Triple(0.0, "", 0)
             Text(
                 if (v != null) fmt(dv, dec) else "----",
-                style = TextStyle(textMotion = Fonts.motion, color = M.Green, fontSize = 30.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
+                style = TextStyle(textMotion = Fonts.motion, color = M.Green, fontSize = if (narrow) 40.sp else 50.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
+                maxLines = 1,
             )
-            Text(" $unit", color = M.Mid, fontSize = 14.sp, fontFamily = M.Mono, modifier = Modifier.padding(bottom = 5.dp))
+            Text(" $unit", color = M.Mid, fontSize = if (narrow) 17.sp else 20.sp, fontFamily = M.Mono, maxLines = 1, modifier = Modifier.padding(bottom = 6.dp))
         }
-        Canvas(Modifier.fillMaxWidth().height(30.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(if (narrow) 34.dp else 44.dp)) {
             val h = hist ?: return@Canvas
             if (h.size < 2) return@Canvas
             val lo = h.min()
@@ -199,14 +216,14 @@ private fun MatrixCell(ch: Channel, v: Double?, hist: List<Float>?, mm: Pair<Dou
                 val py = size.height - (y - lo) / span * size.height
                 if (i == 0) path.moveTo(x, py) else path.lineTo(x, py)
             }
-            drawPath(path, M.Green.copy(alpha = 0.85f), style = Stroke(2f))
+            drawPath(path, M.Green.copy(alpha = 0.85f), style = Stroke(2.5f))
         }
         val mmText = mm?.let { (lo, hi) ->
             val a = display(ch, lo, metric)
             val b = display(ch, hi, metric)
             "min ${fmt(a.first, a.third)}  max ${fmt(b.first, b.third)}"
         } ?: " "
-        Text(mmText, color = M.Dim, fontSize = 11.sp, fontFamily = M.Mono, maxLines = 1)
+        Text(mmText, color = M.Dim, fontSize = if (narrow) 13.sp else 15.sp, fontFamily = M.Mono, maxLines = 1)
     }
 }
 
@@ -250,6 +267,7 @@ private fun MChip(text: String, onClick: () -> Unit) {
         maxLines = 1,
         softWrap = false,
         modifier = Modifier
+            .background(M.Bg, RoundedCornerShape(4.dp))
             .border(1.dp, M.Mid, RoundedCornerShape(4.dp))
             .clickableNoRipple(onClick)
             .padding(horizontal = 12.dp, vertical = 7.dp),
@@ -314,7 +332,7 @@ private class RainState {
 
 /** Friction circle + scrolling lat/lon traces, in Matrix green. */
 @Composable
-private fun GPanel(g: GForce, onZero: () -> Unit, modifier: Modifier) {
+private fun GPanel(g: GForce, onZero: () -> Unit, narrow: Boolean, modifier: Modifier) {
     val lat = M.Green
     val lon = M.Alt
     Column(
@@ -334,7 +352,7 @@ private fun GPanel(g: GForce, onZero: () -> Unit, modifier: Modifier) {
         }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Canvas(Modifier.width(130.dp).height(130.dp)) {
+            Canvas(Modifier.width(if (narrow) 96.dp else 130.dp).height(if (narrow) 96.dp else 130.dp)) {
                 val r = size.minDimension / 2
                 val c = Offset(size.width / 2, size.height / 2)
                 for (ring in listOf(0.25f, 0.5f, 0.75f, 1f)) drawCircle(M.Faint, r * ring, c, style = Stroke(1.5f))
@@ -350,14 +368,15 @@ private fun GPanel(g: GForce, onZero: () -> Unit, modifier: Modifier) {
             Column {
                 Text(
                     "%.2f g".format(sqrt(g.lat * g.lat + g.lon * g.lon)),
-                    style = TextStyle(textMotion = Fonts.motion, color = M.Green, fontSize = 28.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
+                    style = TextStyle(textMotion = Fonts.motion, color = M.Green, fontSize = if (narrow) 24.sp else 28.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
+                    maxLines = 1, softWrap = false,
                 )
                 Text("lat %+.2f".format(g.lat), color = lat, fontSize = 13.sp, fontFamily = M.Mono)
                 Text("lon %+.2f".format(g.lon), color = lon, fontSize = 13.sp, fontFamily = M.Mono)
                 Spacer(Modifier.height(6.dp))
-                Text("peak lat %.2f".format(g.peakLat), color = M.Dim, fontSize = 11.sp, fontFamily = M.Mono)
-                Text("peak acc %.2f".format(g.peakAccel), color = M.Dim, fontSize = 11.sp, fontFamily = M.Mono)
-                Text("peak brk %.2f".format(g.peakBrake), color = M.Dim, fontSize = 11.sp, fontFamily = M.Mono)
+                Text("peak lat %.2f".format(g.peakLat), color = M.Dim, fontSize = 11.sp, fontFamily = M.Mono, maxLines = 1, softWrap = false)
+                Text("peak acc %.2f".format(g.peakAccel), color = M.Dim, fontSize = 11.sp, fontFamily = M.Mono, maxLines = 1, softWrap = false)
+                Text("peak brk %.2f".format(g.peakBrake), color = M.Dim, fontSize = 11.sp, fontFamily = M.Mono, maxLines = 1, softWrap = false)
             }
         }
         Spacer(Modifier.height(8.dp))

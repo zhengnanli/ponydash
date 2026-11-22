@@ -23,6 +23,7 @@ import dev.ponydash.ui.ConnectDialog
 import dev.ponydash.ui.DashScreen
 import dev.ponydash.ui.DiagScreen
 import dev.ponydash.ui.MatrixScreen
+import dev.ponydash.ui.RaceScreen
 import dev.ponydash.ui.ReplayBar
 import dev.ponydash.ui.ReplayDialog
 import androidx.compose.foundation.layout.Box
@@ -54,8 +55,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(), typography = dev.ponydash.ui.Fonts.typography) {
                 var showConnect by remember { mutableStateOf(false) }
-                var showDiag by remember { mutableStateOf(false) }
-                var showMatrix by remember { mutableStateOf(false) }
+                // Matrix is the home screen; Dash, Race and Diagnostics hang off it
+                var screen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("matrix") }
                 var showReplay by remember { mutableStateOf(false) }
                 val replay by vm.replay.collectAsState()
                 val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
@@ -67,17 +68,17 @@ class MainActivity : ComponentActivity() {
 
                 androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().background(dev.ponydash.ui.C.Bg)) {
                 Box(Modifier.fillMaxWidth().weight(1f)) {
-                if (showDiag) {
-                    DiagScreen(vm) { showDiag = false }
-                } else if (showMatrix) {
-                    MatrixScreen(vm) { showMatrix = false }
-                } else {
-                    DashScreen(
+                when (screen) {
+                    "diag" -> DiagScreen(vm) { screen = "dash" }
+                    "matrix" -> MatrixScreen(vm, onClose = { screen = "dash" }, onRace = { screen = "race" })
+                    "race" -> RaceScreen(vm, onMatrix = { screen = "matrix" }, onDash = { screen = "dash" })
+                    else -> DashScreen(
                         vm,
                         onOpenConnect = { if (hasPerms()) showConnect = true else launcher.launch(perms) },
-                        onOpenDiag = { showDiag = true },
-                        onOpenMatrix = { showMatrix = true },
+                        onOpenDiag = { screen = "diag" },
+                        onOpenMatrix = { screen = "matrix" },
                         onOpenReplay = { showReplay = true },
+                        onOpenRace = { screen = "race" },
                     )
                 }
                 }

@@ -80,7 +80,7 @@ private class Units(val metric: Boolean) {
 }
 
 @Composable
-fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenDiag: () -> Unit, onOpenMatrix: () -> Unit, onOpenReplay: () -> Unit) {
+fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenDiag: () -> Unit, onOpenMatrix: () -> Unit, onOpenReplay: () -> Unit, onOpenRace: () -> Unit) {
     val v by vm.values.collectAsState()
     val conn by vm.conn.collectAsState()
     val g by vm.gmeter.state.collectAsState()
@@ -99,7 +99,7 @@ fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenDiag: () -> U
         Modifier.fillMaxSize().background(C.Bg).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        StatusBar(u.temp(v[K.AMBIENT]), u.tempUnit, conn.link, conn.device, conn.detail, onOpenConnect, onOpenDiag, vm::toggleUnits, onOpenMatrix, onOpenReplay, vm::cycleTheme)
+        StatusBar(u.temp(v[K.AMBIENT]), u.tempUnit, conn.link, conn.device, conn.detail, onOpenConnect, onOpenDiag, vm::toggleUnits, onOpenMatrix, onOpenReplay, vm::cycleTheme, onOpenRace)
 
         // Row 1: what you read at the limit. RPM doubles as a shift light.
         Row(Modifier.fillMaxWidth().weight(1.5f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -142,7 +142,7 @@ fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenDiag: () -> U
             ValueTile("Knock retard", f1(knock), "°", Modifier.weight(1f).fillMaxHeight(),
                 color = if ((knock ?: 0.0) >= 2.0) C.Warn else C.Value, sub = "scale unverified")
             val lam = v[K.LAMBDA]?.takeIf { it > 0.5 } // the O₂ sensor reads 0 until it is warm
-            val lean = lam != null && lam > 0.95 && (v[K.BOOST] ?: 0.0) > 30
+            val lean = dev.ponydash.obd.leanUnderBoost(v)
             ValueTile("Air-fuel λ", lam?.let { "%.2f".format(it) }, "", Modifier.weight(1f).fillMaxHeight(),
                 color = if (lean) C.Bad else C.Value,
                 sub = if (lean) "lean under boost" else v[K.CMD_LAMBDA]?.let { "target %.2f".format(it) })
@@ -187,6 +187,7 @@ private fun StatusBar(
     onMatrix: () -> Unit,
     onReplay: () -> Unit,
     onTheme: () -> Unit,
+    onRace: () -> Unit,
 ) {
     var now by remember { mutableStateOf(Date()) }
     LaunchedEffect(Unit) { while (true) { now = Date(); delay(1_000) } }
@@ -241,6 +242,16 @@ private fun StatusBar(
         )
         Spacer(Modifier.width(if (compact) 6.dp else 10.dp))
         Text(
+            "Race",
+            color = C.Bad,
+            fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, softWrap = false, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .border(1.dp, C.Bad.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                .clickableNoRipple(onRace)
+                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
+        )
+        Spacer(Modifier.width(if (compact) 6.dp else 10.dp))
+        Text(
             if (C.auto) (if (compact) "◐ ${C.palette.name}" else "Auto · ${C.palette.name}") else C.palette.name,
             color = C.Label,
             fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, softWrap = false,
@@ -287,20 +298,20 @@ fun Chip(text: String, color: Color = C.Accent, onClick: () -> Unit) {
 
 @Composable
 private fun TiresTile(v: Map<String, Double>, metric: Boolean, modifier: Modifier) {
-    fun t(k: String): String = v[k]?.let { if (metric) "%.0f".format(it) else "%.1f".format(it * 0.145038) } ?: "—"
+    fun t(k: String): String = v[k]?.let { if (metric) "%.2f".format(it / 100) else "%.1f".format(it * 0.145038) } ?: "–"
     val all = listOf(K.TIRE_FL, K.TIRE_FR, K.TIRE_RL, K.TIRE_RR).mapNotNull { v[it] }
     // flag a tire 10 % below the average of the four
     val low = all.size == 4 && all.any { it < all.average() * 0.9 }
     val ts = if (compact) 20.sp else 30.sp
-    Tile(if (metric) "Tires · kPa" else "Tires · psi", modifier, if (low) C.Warn else null) {
+    Tile(if (metric) "Tires · bar" else "Tires · psi", modifier, if (low) C.Warn else null) {
         Spacer(Modifier.weight(1f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Text(t(K.TIRE_FL), color = C.Value, fontSize = ts, lineHeight = ts, fontWeight = FontWeight.Bold)
-            Text(t(K.TIRE_FR), color = C.Value, fontSize = ts, lineHeight = ts, fontWeight = FontWeight.Bold)
+            Text(t(K.TIRE_FL), color = if (v[K.TIRE_FL] == null) C.Dim else C.Value, fontSize = ts, lineHeight = ts, fontWeight = if (v[K.TIRE_FL] == null) FontWeight.Light else FontWeight.Bold)
+            Text(t(K.TIRE_FR), color = if (v[K.TIRE_FR] == null) C.Dim else C.Value, fontSize = ts, lineHeight = ts, fontWeight = if (v[K.TIRE_FR] == null) FontWeight.Light else FontWeight.Bold)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Text(t(K.TIRE_RL), color = C.Value, fontSize = ts, lineHeight = ts, fontWeight = FontWeight.Bold)
-            Text(t(K.TIRE_RR), color = C.Value, fontSize = ts, lineHeight = ts, fontWeight = FontWeight.Bold)
+            Text(t(K.TIRE_RL), color = if (v[K.TIRE_RL] == null) C.Dim else C.Value, fontSize = ts, lineHeight = ts, fontWeight = if (v[K.TIRE_RL] == null) FontWeight.Light else FontWeight.Bold)
+            Text(t(K.TIRE_RR), color = if (v[K.TIRE_RR] == null) C.Dim else C.Value, fontSize = ts, lineHeight = ts, fontWeight = if (v[K.TIRE_RR] == null) FontWeight.Light else FontWeight.Bold)
         }
         Spacer(Modifier.weight(1f))
     }

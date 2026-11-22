@@ -121,8 +121,9 @@ class FlightRecorder(
     }
 
     private fun tick(now: Long, toRing: Boolean, flush: Boolean) {
-        // replayed data is not the car: never write it back into the recorder
-        val v = if (conn.value.link == Link.REPLAY) emptyMap() else values.value
+        // only the car is recorded: replayed and simulated data would push real driving out of the hour
+        val link = conn.value.link
+        val v = if (link == Link.REPLAY || link == Link.SIM) emptyMap() else values.value
         if (v.isNotEmpty()) {
             if (csv == null || now - lastRow > GAP_MS || now - segStart > SEG_MS) rotate(now)
             val gf = g.value

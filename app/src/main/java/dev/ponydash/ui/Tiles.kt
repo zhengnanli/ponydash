@@ -65,7 +65,8 @@ fun ValueTile(
         Spacer(Modifier.weight(1f))
         val k = if (compact) 0.72f else 1f
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(value ?: "—", color = if (value == null) C.Dim else color, fontSize = size * k, fontWeight = FontWeight.Bold, maxLines = 1)
+            if (value == null) Text("–", color = C.Dim, fontSize = size * k * 0.6f, fontWeight = FontWeight.Light, maxLines = 1)
+            else Text(value, color = color, fontSize = size * k, fontWeight = FontWeight.Bold, maxLines = 1)
             if (value != null) Text(" $unit", color = C.Label, fontSize = 18.sp * k, maxLines = 1, modifier = Modifier.padding(bottom = (6 * k).dp))
         }
         if (sub != null) Text(sub, color = C.Dim, fontSize = if (compact) 11.sp else 13.sp, maxLines = 1)
@@ -105,8 +106,12 @@ fun GaugeTile(
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(text ?: "—", color = if (text == null) C.Dim else C.Value, fontSize = valueSp.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                Text(unit, color = C.Label, fontSize = unitSp.sp, maxLines = 1)
+                if (text == null) {
+                    Text("–", color = C.Dim, fontSize = (valueSp * 0.6f).sp, fontWeight = FontWeight.Light, maxLines = 1)
+                } else {
+                    Text(text, color = C.Value, fontSize = valueSp.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    Text(unit, color = C.Label, fontSize = unitSp.sp, maxLines = 1)
+                }
             }
         }
         if (sub != null) Text(sub, color = C.Dim, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally))

@@ -56,41 +56,55 @@ class ReplayData(val name: String, val t: LongArray, val keys: List<String>, val
     companion object {
         /** Parse recorder CSV text (one or more segments; repeated headers are skipped). */
         fun parse(name: String, streams: List<InputStream>): ReplayData {
-            var keys: List<String>? = null
+            // Segments written by different app versions have different columns,
+            // so each header gets its own column map into the union of all keys.
+            val keyIdx = LinkedHashMap<String, Int>()
+            var map = IntArray(0)
             var epochCol = -1
             var linkCol = -1
             val times = ArrayList<Long>(40_000)
-            val rows = ArrayList<FloatArray>(40_000)
+            val rows = ArrayList<Pair<IntArray, FloatArray>>(40_000)
             val links = ArrayList<Boolean>(40_000)
             for (s in streams) s.bufferedReader().useLines { lines ->
                 for (line in lines) {
                     if (line.isEmpty()) continue
                     if (line.startsWith("time,")) {
                         val h = line.split(',')
-                        if (keys == null) {
-                            epochCol = h.indexOf("epoch_ms")
-                            linkCol = h.indexOf("link")
-                            keys = h.drop(3).map { it.substringBefore('[') }
-                        }
+                        epochCol = h.indexOf("epoch_ms")
+                        linkCol = h.indexOf("link")
+                        map = IntArray(h.size - 3) { i -> keyIdx.getOrPut(h[3 + i].substringBefore('[')) { keyIdx.size } }
                         continue
                     }
-                    val k = keys ?: continue
+                    if (epochCol < 0) continue
                     val f = line.split(',')
-                    if (f.size < 3 + k.size) continue
+                    if (f.size < 3 + map.size) continue
                     val t = f[epochCol].toLongOrNull() ?: continue
                     times += t
                     links += f[linkCol] != "sim"
-                    rows += FloatArray(k.size) { i -> f[3 + i].toFloatOrNull() ?: Float.NaN }
+                    rows += map to FloatArray(map.size) { i -> f[3 + i].toFloatOrNull() ?: Float.NaN }
                 }
             }
-            val k = keys ?: error("not a PonyDash recording")
+            if (keyIdx.isEmpty()) error("not a PonyDash recording")
             // Prefer the real car: drop simulator rows when there is live data.
             val keep = if (links.any { it }) links.indices.filter { links[it] } else links.indices.toList()
             val order = keep.sortedBy { times[it] }
             if (order.isEmpty()) error("recording is empty")
             val t = LongArray(order.size) { times[order[it]] }
-            val cols = Array(k.size) { c -> FloatArray(order.size) { rows[order[it]][c] } }
-            return ReplayData(name, t, k, cols)
+            val cols = Array(keyIdx.size) { FloatArray(order.size) { Float.NaN } }
+            for ((j, r) in order.withIndex()) {
+                val (m, vals) = rows[r]
+                for (i in m.indices) cols[m[i]][j] = vals[i]
+            }
+            return ReplayData(name, t, keyIdx.keys.toList(), cols)
+        }
+
+        /** "ponydash_20261122_110912" → "Sun 22 Nov, 11:09 AM"; anything else unchanged. */
+        private fun pretty(name: String): String {
+            val m = Regex("""(\d{8}_\d{6})""").find(name) ?: return name
+            return runCatching {
+                val d = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).parse(m.value)!!
+                "Drive · " + java.text.SimpleDateFormat("EEE d MMM, h:mm a", java.util.Locale.US).format(d)
+            }.getOrDefault(name)
         }
 
         fun list(context: Context, flightDir: File): List<Recording> {
@@ -120,7 +134,7 @@ class ReplayData(val name: String, val t: LongArray, val keys: List<String>, val
                     while (c.moveToNext()) {
                         val uri: Uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, c.getLong(0))
                         val nm = c.getString(1).removeSuffix(".csv")
-                        out += Recording(nm, "saved hour · %.1f MB".format(c.getLong(2) / 1e6), c.getLong(3) * 1000) {
+                        out += Recording(pretty(nm), "saved hour · %.1f MB".format(c.getLong(2) / 1e6), c.getLong(3) * 1000) {
                             listOf(cr.openInputStream(uri) ?: error("cannot open $nm"))
                         }
                     }

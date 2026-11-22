@@ -21,6 +21,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.abs
 import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,6 +71,27 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     /** Last hour of every channel, on disk and in memory. */
     val recorder = FlightRecorder(app, viewModelScope, values, gmeter.state, conn)
     val exportMsg = MutableStateFlow<String?>(null)
+
+    /** Gear, pedal/brake and launch/braking timers for the race screen. */
+    val race = MutableStateFlow(RaceState())
+    private val raceTracker = RaceTracker(prefs)
+    fun resetRaceBests() { raceTracker.resetBests() }
+
+    init {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(100) // first: replay and metric are declared further down
+                val v = values.value
+                if (v.isNotEmpty()) {
+                    raceTracker.setMetric(metric.value)
+                    val t = replay.value?.takeIf { !it.loading }?.pos ?: System.currentTimeMillis()
+                    race.value = raceTracker.feed(v, gmeter.state.value.lon, t)
+                } else if (race.value.gear != null || race.value.lastGear != null || race.value.pedal > 0) {
+                    race.value = raceTracker.idle()
+                }
+            }
+        }
+    }
 
     fun exportLastHour() {
         viewModelScope.launch {
@@ -255,11 +277,15 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             while (isActive) {
                 t += 0.1
                 val pull = (sin(t / 6) + 1) / 2 // 0..1 slow throttle cycle
-                val rpm = 750 + pull * 4800 + sin(t * 3) * 60
+                // speed follows the throttle; the gearbox picks the gear that keeps rpm near the driver's ask
+                val speed = 40 + pull * 70
+                val ask = 1500 + pull * 4700
+                val gear = (1..10).minBy { abs(Gearbox.rpmIn(it, speed) - ask) }
+                val rpm = Gearbox.rpmIn(gear, speed) + sin(t * 3) * 20
                 val map = 30 + pull * 200
                 values.value = mapOf(
                     K.RPM to rpm,
-                    K.SPEED to 40 + pull * 70,
+                    K.SPEED to speed,
                     K.MAP to map,
                     K.BARO to 100.0,
                     K.MAF to 3 + pull * 140,

@@ -211,3 +211,15 @@ object FordPids {
         tire(K.TIRE_RL, "Tire rear-left", "2816"),
     )
 }
+
+/**
+ * Lean under boost: the mixture is more than 5 % leaner than the ECU asked for
+ * while the turbo is making real pressure. The EcoBoost targets λ ≈ 1.0 at part
+ * throttle even in boost, so a fixed threshold would cry wolf.
+ */
+fun leanUnderBoost(v: Map<String, Double>): Boolean {
+    val lam = v[K.LAMBDA]?.takeIf { it > 0.5 } ?: return false // O2 sensor reads 0 until warm
+    val boost = v[K.BOOST] ?: return false
+    val target = v[K.CMD_LAMBDA]?.takeIf { it > 0.5 }
+    return if (target != null) boost > 30 && lam > target + 0.05 else boost > 60 && lam > 1.05
+}
