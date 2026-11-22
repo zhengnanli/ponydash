@@ -117,7 +117,7 @@ fun MatrixScreen(vm: DashViewModel, onClose: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "PONYDASH://OBD",
-                    style = TextStyle(color = M.Green, fontSize = if (narrow) 18.sp else 26.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
+                    style = TextStyle(textMotion = Fonts.motion, color = M.Green, fontSize = if (narrow) 18.sp else 26.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
                     maxLines = 1, softWrap = false,
                 )
                 Spacer(Modifier.width(if (narrow) 10.dp else 18.dp))
@@ -183,7 +183,7 @@ private fun MatrixCell(ch: Channel, v: Double?, hist: List<Float>?, mm: Pair<Dou
             val (dv, unit, dec) = if (v != null) display(ch, v, metric) else Triple(0.0, "", 0)
             Text(
                 if (v != null) fmt(dv, dec) else "----",
-                style = TextStyle(color = M.Green, fontSize = 30.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
+                style = TextStyle(textMotion = Fonts.motion, color = M.Green, fontSize = 30.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
             )
             Text(" $unit", color = M.Mid, fontSize = 14.sp, fontFamily = M.Mono, modifier = Modifier.padding(bottom = 5.dp))
         }
@@ -350,7 +350,7 @@ private fun GPanel(g: GForce, onZero: () -> Unit, modifier: Modifier) {
             Column {
                 Text(
                     "%.2f g".format(sqrt(g.lat * g.lat + g.lon * g.lon)),
-                    style = TextStyle(color = M.Green, fontSize = 28.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
+                    style = TextStyle(textMotion = Fonts.motion, color = M.Green, fontSize = 28.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
                 )
                 Text("lat %+.2f".format(g.lat), color = lat, fontSize = 13.sp, fontFamily = M.Mono)
                 Text("lon %+.2f".format(g.lon), color = lon, fontSize = 13.sp, fontFamily = M.Mono)
@@ -438,7 +438,7 @@ private fun ZoomPanel(vm: DashViewModel, ch: Channel, now: Double?, metric: Bool
     val hi = finite.maxOrNull()
     val avg = if (finite.isEmpty()) null else finite.average()
     val labelPaint = remember {
-        Paint().apply { typeface = Typeface.MONOSPACE; isAntiAlias = true; color = M.Mid.toArgb() }
+        Paint().apply { typeface = Typeface.MONOSPACE; isAntiAlias = true; isSubpixelText = true; isLinearText = true; color = M.Mid.toArgb() }
     }
 
     val narrowZ = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 1150
@@ -476,7 +476,7 @@ private fun ZoomPanel(vm: DashViewModel, ch: Channel, now: Double?, metric: Bool
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             now?.let { fmt(display(ch, it, metric).first, dec) } ?: "----",
-                            style = TextStyle(color = M.Green, fontSize = 54.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
+                            style = TextStyle(textMotion = Fonts.motion, color = M.Green, fontSize = 54.sp, fontFamily = M.Mono, fontWeight = FontWeight.Bold, shadow = M.glow),
                         )
                         Text(" $unit", color = M.Mid, fontSize = 20.sp, fontFamily = M.Mono, modifier = Modifier.padding(bottom = 10.dp))
                     }

@@ -124,7 +124,7 @@ fun DiagScreen(vm: DashViewModel, onClose: () -> Unit) {
                 BasicTextField(
                     cmd, { cmd = it },
                     singleLine = true,
-                    textStyle = TextStyle(color = C.Value, fontSize = 18.sp, fontFamily = Fonts.Mono),
+                    textStyle = TextStyle(textMotion = Fonts.motion, color = C.Value, fontSize = 18.sp, fontFamily = Fonts.Mono),
                     cursorBrush = SolidColor(C.Accent),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { vm.sendRaw(cmd); cmd = "" }),

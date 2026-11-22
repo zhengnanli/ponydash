@@ -5,6 +5,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextMotion
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
@@ -94,16 +96,23 @@ object Fonts {
     val Sans = FontFamily(f(R.font.inter, 400), f(R.font.inter, 500), f(R.font.inter, 600), f(R.font.inter, 700), f(R.font.inter, 800))
     val Mono = FontFamily(f(R.font.jetbrains_mono, 400), f(R.font.jetbrains_mono, 500), f(R.font.jetbrains_mono, 700), f(R.font.jetbrains_mono, 800))
 
+    /**
+     * Subpixel glyph positioning. The default (TextMotion.Static) snaps every glyph to a
+     * whole pixel, which on 160 dpi screens opens visible gaps inside words ("Rep lay").
+     */
+    val motion = TextMotion.Animated
+
     val typography: Typography = Typography().run {
+        fun TextStyle.fix() = copy(fontFamily = Sans, textMotion = motion)
         Typography(
-            displayLarge = displayLarge.copy(fontFamily = Sans), displayMedium = displayMedium.copy(fontFamily = Sans),
-            displaySmall = displaySmall.copy(fontFamily = Sans), headlineLarge = headlineLarge.copy(fontFamily = Sans),
-            headlineMedium = headlineMedium.copy(fontFamily = Sans), headlineSmall = headlineSmall.copy(fontFamily = Sans),
-            titleLarge = titleLarge.copy(fontFamily = Sans), titleMedium = titleMedium.copy(fontFamily = Sans),
-            titleSmall = titleSmall.copy(fontFamily = Sans), bodyLarge = bodyLarge.copy(fontFamily = Sans),
-            bodyMedium = bodyMedium.copy(fontFamily = Sans), bodySmall = bodySmall.copy(fontFamily = Sans),
-            labelLarge = labelLarge.copy(fontFamily = Sans), labelMedium = labelMedium.copy(fontFamily = Sans),
-            labelSmall = labelSmall.copy(fontFamily = Sans),
+            displayLarge = displayLarge.fix(), displayMedium = displayMedium.fix(),
+            displaySmall = displaySmall.fix(), headlineLarge = headlineLarge.fix(),
+            headlineMedium = headlineMedium.fix(), headlineSmall = headlineSmall.fix(),
+            titleLarge = titleLarge.fix(), titleMedium = titleMedium.fix(),
+            titleSmall = titleSmall.fix(), bodyLarge = bodyLarge.fix(),
+            bodyMedium = bodyMedium.fix(), bodySmall = bodySmall.fix(),
+            labelLarge = labelLarge.fix(), labelMedium = labelMedium.fix(),
+            labelSmall = labelSmall.fix(),
         )
     }
 }
