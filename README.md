@@ -35,6 +35,21 @@ the raw ELM327 traffic scrolling by.
   and the raw ELM327 traffic. Time with the car off does not count toward the
   hour. **save hour** on the Matrix view merges it into
   `Download/PonyDash/ponydash_<time>.csv` and `…_events.txt`.
+- **Race layout:** RPM (shift light at 5,800 / 6,300), boost and the
+  G-meter first; then transmission/oil, coolant, charge air, knock and
+  air-fuel ratio (red when lean under boost); tyres, fuel, battery, codes
+  and trip last. The Matrix view uses the same priority order.
+- **Replay:** the **Replay** button plays any recording back through the
+  dashboard, Matrix, zoomed plots and G-meter, with play/pause, 1×/4×/16×
+  and a seek bar. Stops with the engine off are skipped. It lists the rolling
+  last hour, saved hours, and any recorder CSV pushed to
+  `Android/data/dev.ponydash/files/replay/`. Replays are never re-recorded.
+- **Themes:** Auto (follows the system light/dark setting), Midnight,
+  Phosphor, Carbon, Race Red, Night Amber (no blue light, for night driving)
+  and Daylight; tap the theme chip in the top bar to cycle. The Matrix view
+  follows the theme. Bundled Inter and JetBrains Mono fonts keep text sharp
+  on low-density screens, and short screens (such as 1024×600) get a compact
+  layout.
 - **Metric or imperial**, switched from the top bar (°C/°F, kPa or bar/psi,
   km/mi, L/100 km or mpg).
 - **Bluetooth LE ELM327** link that finds the adapter's serial service
@@ -45,7 +60,7 @@ the raw ELM327 traffic scrolling by.
 - **Diagnostics screen:** supported-PID list, live values, a raw ELM327
   console, and a one-tap probe of Ford mode-22 reads.
 - **Simulator** for working on the UI without a car.
-- Fullscreen, landscape, keeps the screen on.
+- Fullscreen, landscape, keeps the screen on at a power-saving 30 Hz.
 
 ## Ford readings (mode 22)
 
@@ -102,3 +117,5 @@ The console sends whatever you type to the adapter. Stick to reads (`01xx`,
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Inter and JetBrains Mono are bundled under the SIL Open Font License (see `licenses/`).

@@ -32,15 +32,19 @@ import kotlin.math.min
 
 private val TileShape = RoundedCornerShape(18.dp)
 
+/** Short screens (the 1024×600 onn tablet): tighter tiles and smaller type. */
+val compact: Boolean
+    @Composable get() = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 700
+
 @Composable
 fun Tile(title: String, modifier: Modifier = Modifier, alert: Color? = null, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier
             .background(C.Tile, TileShape)
             .border(if (alert != null) 2.dp else 1.dp, alert ?: C.Stroke, TileShape)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .padding(horizontal = if (compact) 12.dp else 18.dp, vertical = if (compact) 8.dp else 14.dp),
     ) {
-        Text(title.uppercase(), color = alert ?: C.Label, fontSize = 14.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Medium)
+        Text(title.uppercase(), color = alert ?: C.Label, fontSize = if (compact) 12.sp else 14.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Medium, maxLines = 1)
         content()
     }
 }
@@ -59,11 +63,12 @@ fun ValueTile(
     val alert = color.takeIf { it == C.Bad || it == C.Warn }
     Tile(title, modifier, alert) {
         Spacer(Modifier.weight(1f))
+        val k = if (compact) 0.72f else 1f
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(value ?: "—", color = if (value == null) C.Dim else color, fontSize = size, fontWeight = FontWeight.Bold)
-            if (value != null) Text(" $unit", color = C.Label, fontSize = 18.sp, modifier = Modifier.padding(bottom = 6.dp))
+            Text(value ?: "—", color = if (value == null) C.Dim else color, fontSize = size * k, fontWeight = FontWeight.Bold, maxLines = 1)
+            if (value != null) Text(" $unit", color = C.Label, fontSize = 18.sp * k, maxLines = 1, modifier = Modifier.padding(bottom = (6 * k).dp))
         }
-        if (sub != null) Text(sub, color = C.Dim, fontSize = 13.sp)
+        if (sub != null) Text(sub, color = C.Dim, fontSize = if (compact) 11.sp else 13.sp, maxLines = 1)
         Spacer(Modifier.weight(1f))
     }
 }
@@ -83,7 +88,12 @@ fun GaugeTile(
 ) {
     val alert = color.takeIf { it == C.Bad || it == C.Warn }
     Tile(title, modifier, alert) {
-        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            // Fit the number inside the ring: ~60% of the ring's inner width, at most 52 sp.
+            val ring = min(maxWidth.value, maxHeight.value) - 12f
+            val chars = (text ?: "—").length.coerceAtLeast(2)
+            val valueSp = minOf(52f, ring * 0.62f / (chars * 0.62f), ring * 0.34f)
+            val unitSp = minOf(16f, maxOf(11f, ring * 0.11f))
             Canvas(Modifier.fillMaxSize().padding(6.dp)) {
                 val d = min(size.width, size.height)
                 val tl = Offset((size.width - d) / 2, (size.height - d) / 2 + d * 0.06f)
@@ -95,8 +105,8 @@ fun GaugeTile(
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(text ?: "—", color = if (text == null) C.Dim else C.Value, fontSize = 52.sp, fontWeight = FontWeight.Bold)
-                Text(unit, color = C.Label, fontSize = 16.sp)
+                Text(text ?: "—", color = if (text == null) C.Dim else C.Value, fontSize = valueSp.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                Text(unit, color = C.Label, fontSize = unitSp.sp, maxLines = 1)
             }
         }
         if (sub != null) Text(sub, color = C.Dim, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
@@ -124,20 +134,21 @@ fun GMeterTile(g: GForce, modifier: Modifier = Modifier, onCalibrate: () -> Unit
                 }
                 drawCircle(C.Warn, 11f, Offset(c.x + g.lat.coerceIn(-1.2f, 1.2f) * scale, c.y - g.lon.coerceIn(-1.2f, 1.2f) * scale))
             }
-            Column(Modifier.padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 1.dp else 6.dp)) {
                 val tot = kotlin.math.sqrt(g.lat * g.lat + g.lon * g.lon)
-                Text("%.2f g".format(tot), color = C.Value, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text("lat %+.2f".format(g.lat), color = C.Label, fontSize = 15.sp)
-                Text("lon %+.2f".format(g.lon), color = C.Label, fontSize = 15.sp)
-                Spacer(Modifier.height(8.dp))
+                Text("%.2f g".format(tot), color = C.Value, fontSize = if (compact) 24.sp else 30.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("lat %+.2f".format(g.lat), color = C.Label, fontSize = if (compact) 13.sp else 15.sp)
+                Text("lon %+.2f".format(g.lon), color = C.Label, fontSize = if (compact) 13.sp else 15.sp)
+                Spacer(Modifier.height(if (compact) 2.dp else 8.dp))
                 Text(
-                    if (g.calibrated) "re-zero" else "tap to zero",
+                    if (g.calibrated) "re-zero" else if (compact) "zero" else "tap to zero",
                     color = C.Accent,
-                    fontSize = 14.sp,
+                    fontSize = if (compact) 12.sp else 14.sp,
+                    maxLines = 1,
                     modifier = Modifier
                         .border(1.dp, C.Accent, RoundedCornerShape(8.dp))
                         .clickableNoRipple(onCalibrate)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .padding(horizontal = 10.dp, vertical = if (compact) 3.dp else 6.dp),
                 )
             }
         }

@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Samples of one channel; [v] is in stored (metric) units, NaN where there was no reading. */
-class Series(val t: LongArray, val v: FloatArray) {
+class Series(val t: LongArray, val v: FloatArray, val now: Long = System.currentTimeMillis()) {
     companion object {
         val EMPTY = Series(LongArray(0), FloatArray(0))
     }
@@ -121,7 +121,8 @@ class FlightRecorder(
     }
 
     private fun tick(now: Long, toRing: Boolean, flush: Boolean) {
-        val v = values.value
+        // replayed data is not the car: never write it back into the recorder
+        val v = if (conn.value.link == Link.REPLAY) emptyMap() else values.value
         if (v.isNotEmpty()) {
             if (csv == null || now - lastRow > GAP_MS || now - segStart > SEG_MS) rotate(now)
             val gf = g.value

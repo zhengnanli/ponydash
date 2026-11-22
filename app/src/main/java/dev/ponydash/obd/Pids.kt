@@ -75,14 +75,53 @@ object Pids {
         p(0xA6, Rate.SLOW, 4, Channel("odometer", "Odometer", Kind.DISTANCE, "km", 1)) {
             ((it[0].toLong() shl 24) or (it[1].toLong() shl 16) or (it[2].toLong() shl 8) or it[3].toLong()) / 10.0
         },
+        // turbo and airflow (the 2025 EcoBoost reports these instead of PID 10 / 70)
+        Pid(0x66, "MAF sensor", Rate.FAST, 3, listOf(Channel(K.MAF, "MAF air flow", Kind.PLAIN, "g/s", 1))) {
+            listOf(if (it[0] and 1 != 0) (it[1] * 256 + it[2]) / 32.0 else Double.NaN)
+        },
+        Pid(0x68, "Intake air temp sensors", Rate.MEDIUM, 3, listOf(
+            Channel(K.IAT_A, "Intake air temp A", Kind.TEMP, "°C"),
+            Channel(K.IAT_B, "Intake air temp B", Kind.TEMP, "°C"),
+        )) { listOf(if (it[0] and 1 != 0) it[1] - 40.0 else Double.NaN, if (it[0] and 2 != 0) it[2] - 40.0 else Double.NaN) },
+        Pid(0x73, "Exhaust pressure", Rate.MEDIUM, 3, listOf(Channel("exh_kpa", "Exhaust back-pressure", Kind.PRESSURE, "kPa"))) {
+            listOf(if (it[0] and 1 != 0) (it[1] * 256 + it[2]) * 0.01 else Double.NaN)
+        },
+        Pid(0x78, "Exhaust gas temp B1", Rate.MEDIUM, 5, listOf(
+            Channel("egt11", "Exhaust gas temp S1", Kind.TEMP, "°C"),
+            Channel("egt12", "Exhaust gas temp S2", Kind.TEMP, "°C"),
+        )) {
+            listOf(
+                if (it[0] and 1 != 0) (it[1] * 256 + it[2]) / 10.0 - 40 else Double.NaN,
+                if (it[0] and 2 != 0 && it.size >= 5) (it[3] * 256 + it[4]) / 10.0 - 40 else Double.NaN,
+            )
+        },
         Pid(0x01, "MIL / DTC count", Rate.SLOW, 4, listOf(
             Channel(K.MIL, "Check-engine light", Kind.PLAIN),
             Channel(K.DTC, "Stored trouble codes", Kind.PLAIN),
         )) { listOf(if (it[0] and 0x80 != 0) 1.0 else 0.0, (it[0] and 0x7F).toDouble()) },
     )
 
+    /** Values computed from other readings rather than polled. */
+    private val derived = listOf(Channel(K.BOOST, "Boost", Kind.PRESSURE, "kPa"))
+
+    /** What matters most when driving hard comes first; everything else follows in PID order. */
+    private val raceOrder = listOf(
+        K.RPM, K.SPEED, K.BOOST, "pedal_d", "cmd_throttle", K.KNOCK, "timing", K.TRANS, K.OIL, K.COOLANT,
+        K.IAT_B, K.IAT, K.IAT_A, "lambda1", "cmd_lambda", "rail_kpa", "egt11", "egt12", "exh_kpa", K.MAP, K.MAF,
+        "torque_act", "torque_dmd", K.THROTTLE, "load", "abs_load", "stft1", "ltft1", "fuel_rate", K.VOLTS,
+        K.TIRE_FL, K.TIRE_FR, K.TIRE_RL, K.TIRE_RR, K.FUEL,
+    )
+
     /** Every channel in display order, keyed for lookup. */
-    val channels: List<Channel> = all.flatMap { it.channels } + FordPids.all.flatMap { it.channels }
+    val channels: List<Channel> = (all.flatMap { it.channels } + FordPids.all.flatMap { it.channels } + derived)
+        .distinctBy { it.key }
+        .sortedBy { raceOrder.indexOf(it.key).let { i -> if (i < 0) raceOrder.size else i } }
+
+    /** Add computed values (boost = manifold − barometric) to a value map. */
+    fun derive(v: Map<String, Double>): Map<String, Double> {
+        val map = v[K.MAP] ?: return v
+        return v + (K.BOOST to map - (v[K.BARO] ?: 101.3))
+    }
     val channelByKey: Map<String, Channel> = channels.associateBy { it.key }
 
     fun name(code: Int) = all.firstOrNull { it.code == code }?.name
@@ -96,6 +135,11 @@ object K {
     const val MAF = "maf_gs"
     const val THROTTLE = "throttle_pct"
     const val IAT = "iat_c"
+    const val IAT_A = "iat_a_c"
+    const val IAT_B = "iat_b_c"
+    const val BOOST = "boost_kpa"
+    const val LAMBDA = "lambda1"
+    const val CMD_LAMBDA = "cmd_lambda"
     const val VOLTS = "volts"
     const val COOLANT = "coolant_c"
     const val OIL = "oil_c"

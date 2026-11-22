@@ -117,14 +117,14 @@ fun DiagScreen(vm: DashViewModel, onClose: () -> Unit) {
                     .padding(12.dp),
                 state = listState,
             ) {
-                items(log) { Text(it, color = C.Label, fontSize = 13.sp, fontFamily = FontFamily.Monospace) }
+                items(log) { Text(it, color = C.Label, fontSize = 13.sp, fontFamily = Fonts.Mono) }
             }
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 BasicTextField(
                     cmd, { cmd = it },
                     singleLine = true,
-                    textStyle = TextStyle(color = C.Value, fontSize = 18.sp, fontFamily = FontFamily.Monospace),
+                    textStyle = TextStyle(color = C.Value, fontSize = 18.sp, fontFamily = Fonts.Mono),
                     cursorBrush = SolidColor(C.Accent),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { vm.sendRaw(cmd); cmd = "" }),
@@ -133,7 +133,7 @@ fun DiagScreen(vm: DashViewModel, onClose: () -> Unit) {
                         .border(1.dp, C.Stroke, RoundedCornerShape(10.dp))
                         .padding(12.dp),
                     decorationBox = { inner ->
-                        if (cmd.isEmpty()) Text("ELM command, e.g. 0105 or ATSH7E0", color = C.Dim, fontSize = 18.sp, fontFamily = FontFamily.Monospace)
+                        if (cmd.isEmpty()) Text("ELM command, e.g. 0105 or ATSH7E0", color = C.Dim, fontSize = 18.sp, fontFamily = Fonts.Mono)
                         inner()
                     },
                 )
@@ -154,12 +154,12 @@ fun DiagScreen(vm: DashViewModel, onClose: () -> Unit) {
                     val n = Pids.name(code)
                     "%02X  %s".format(code, n ?: "")
                 },
-                color = C.Label, fontSize = 13.sp, fontFamily = FontFamily.Monospace,
+                color = C.Label, fontSize = 13.sp, fontFamily = Fonts.Mono,
             )
             Text("Live values", color = C.Value, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Text(
                 values.entries.sortedBy { it.key }.joinToString("\n") { "%-14s %.2f".format(it.key, it.value) },
-                color = C.Label, fontSize = 13.sp, fontFamily = FontFamily.Monospace,
+                color = C.Label, fontSize = 13.sp, fontFamily = Fonts.Mono,
             )
             Text(
                 "Console sends raw ELM327 commands. Stick to reads (01xx, 22xxxx, AT…). " +

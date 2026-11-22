@@ -62,7 +62,14 @@ class GMeter(context: Context) : SensorEventListener {
         trail.clear()
     }
 
+    /** While true, the accelerometer is ignored and [feed] drives the meter (drive replay). */
+    @Volatile var external = false
+
+    /** Push a recorded sample, as if the accelerometer had produced it. */
+    fun feed(lat: Float, lon: Float) = emit(lat, lon)
+
     override fun onSensorChanged(e: SensorEvent) {
+        if (external) return
         val v = e.values
         if (!primed) {
             for (i in 0..2) { smooth[i] = v[i]; gravEst[i] = v[i] }
@@ -91,6 +98,10 @@ class GMeter(context: Context) : SensorEventListener {
         val now = e.timestamp / 1_000_000
         if (now - lastEmit < 40) return
         lastEmit = now
+        emit(lat, lon)
+    }
+
+    private fun emit(lat: Float, lon: Float) {
         trail.addLast(lat to lon)
         while (trail.size > 75) trail.removeFirst()
         longHist.addLast(lat to lon)

@@ -117,7 +117,7 @@ class ObdSession(val elm: Elm327, private val log: (String) -> Unit) {
         val r = elm.send("01%02X%s".format(p.code, countSuffix))
         val b = parseMode01(r, p.code) ?: return null
         if (b.size < p.bytes) return null
-        return p.decodeMap(b)
+        return p.decodeMap(b).filterValues { !it.isNaN() }.ifEmpty { null }
     }
 }
 

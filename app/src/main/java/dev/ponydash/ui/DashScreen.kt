@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -79,7 +80,7 @@ private class Units(val metric: Boolean) {
 }
 
 @Composable
-fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenDiag: () -> Unit, onOpenMatrix: () -> Unit) {
+fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenDiag: () -> Unit, onOpenMatrix: () -> Unit, onOpenReplay: () -> Unit) {
     val v by vm.values.collectAsState()
     val conn by vm.conn.collectAsState()
     val g by vm.gmeter.state.collectAsState()
@@ -98,64 +99,77 @@ fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenDiag: () -> U
         Modifier.fillMaxSize().background(C.Bg).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        StatusBar(u.temp(v[K.AMBIENT]), u.tempUnit, conn.link, conn.device, conn.detail, onOpenConnect, onOpenDiag, vm::toggleUnits, onOpenMatrix)
+        StatusBar(u.temp(v[K.AMBIENT]), u.tempUnit, conn.link, conn.device, conn.detail, onOpenConnect, onOpenDiag, vm::toggleUnits, onOpenMatrix, onOpenReplay, vm::cycleTheme)
 
-        Row(Modifier.fillMaxWidth().weight(1.45f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (v[K.OIL] != null) {
-                GaugeTile(
-                    "Oil temp", oil, u.tc(40.0), u.tc(150.0), f0(oil), u.tempUnit,
-                    tempColor(oil, u.tc(121.0), u.tc(129.0)), Modifier.weight(1f).fillMaxHeight(),
-                )
-            } else {
-                val trans = u.temp(v[K.TRANS])
-                GaugeTile(
-                    "Trans fluid", trans, u.tc(20.0), u.tc(130.0), f0(trans), u.tempUnit,
-                    tempColor(trans, u.tc(110.0), u.tc(120.0)), Modifier.weight(1f).fillMaxHeight(),
-                    sub = if (trans == null && conn.link == Link.LIVE) "waiting for Ford PID" else null,
-                )
-            }
+        // Row 1: what you read at the limit. RPM doubles as a shift light.
+        Row(Modifier.fillMaxWidth().weight(1.5f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            val rpm = v[K.RPM]
+            GaugeTile(
+                "RPM", rpm, 0.0, 7000.0, f0(rpm), v[K.SPEED]?.let { u.speed(it) } ?: "",
+                when {
+                    (rpm ?: 0.0) >= 6300 -> C.Bad
+                    (rpm ?: 0.0) >= 5800 -> C.Warn
+                    else -> C.Accent
+                },
+                Modifier.weight(1f).fillMaxHeight(),
+            )
             GaugeTile(
                 "Boost", boost, u.boostMin, u.boostMax, u.boostText(boost),
                 if (boost != null && boost < 0) "${u.boostUnit} vac" else u.boostUnit,
                 C.Accent, Modifier.weight(1f).fillMaxHeight(),
-                sub = v[K.THROTTLE]?.let { "throttle %.0f%%".format(it) },
+                sub = v["cmd_throttle"]?.let { "throttle %.0f%%".format(it) },
             )
             GMeterTile(g, Modifier.weight(1.25f).fillMaxHeight(), vm.gmeter::calibrate)
         }
 
+        // Row 2: is the car healthy while you push it?
         Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (v[K.OIL] != null) {
+                ValueTile("Oil", f0(oil), u.tempUnit, Modifier.weight(1f).fillMaxHeight(),
+                    color = tempColor(oil, u.tc(121.0), u.tc(129.0)))
+            } else {
+                val trans = u.temp(v[K.TRANS])
+                ValueTile("Trans fluid", f0(trans), u.tempUnit, Modifier.weight(1f).fillMaxHeight(),
+                    color = tempColor(trans, u.tc(110.0), u.tc(120.0)),
+                    sub = if (trans == null && conn.link == Link.LIVE) "waiting for Ford PID" else null)
+            }
             ValueTile("Coolant", f0(cool), u.tempUnit, Modifier.weight(1f).fillMaxHeight(),
                 color = tempColor(cool, u.tc(107.0), u.tc(113.0)))
-            ValueTile("Intake air", f0(iat), u.tempUnit, Modifier.weight(1f).fillMaxHeight(),
-                color = if ((iat ?: -99.0) > u.tc(60.0)) C.Warn else C.Value)
-            ValueTile("Battery", f1(volts), "V", Modifier.weight(1f).fillMaxHeight(),
-                color = if (volts != null && (volts < 12.0 || volts > 15.2)) C.Warn else C.Value)
+            val charge = u.temp(v[K.IAT_B])
+            ValueTile(if (charge != null) "Intake air B" else "Intake air", f0(charge ?: iat), u.tempUnit, Modifier.weight(1f).fillMaxHeight(),
+                color = if ((charge ?: iat ?: -99.0) > u.tc(60.0)) C.Warn else C.Value)
             val knock = v[K.KNOCK]
             ValueTile("Knock retard", f1(knock), "°", Modifier.weight(1f).fillMaxHeight(),
-                color = if ((knock ?: 0.0) >= 2.0) C.Warn else C.Value, sub = "Ford PID · scale unverified")
-            ValueTile("RPM", f0(v[K.RPM]), "", Modifier.weight(1.1f).fillMaxHeight(),
-                sub = v[K.SPEED]?.let { u.speed(it) })
+                color = if ((knock ?: 0.0) >= 2.0) C.Warn else C.Value, sub = "scale unverified")
+            val lam = v[K.LAMBDA]?.takeIf { it > 0.5 } // the O₂ sensor reads 0 until it is warm
+            val lean = lam != null && lam > 0.95 && (v[K.BOOST] ?: 0.0) > 30
+            ValueTile("Air-fuel λ", lam?.let { "%.2f".format(it) }, "", Modifier.weight(1f).fillMaxHeight(),
+                color = if (lean) C.Bad else C.Value,
+                sub = if (lean) "lean under boost" else v[K.CMD_LAMBDA]?.let { "target %.2f".format(it) })
         }
 
-        Row(Modifier.fillMaxWidth().weight(0.85f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.weight(1.5f).fillMaxHeight().combinedClickable(onLongClick = vm::resetTrip, onClick = {})) {
-                val mins = (trip.seconds / 60).toInt()
-                ValueTile(
-                    "Trip · hold to reset",
-                    "%.1f".format(u.dist(trip.miles)), u.distUnit, Modifier.fillMaxSize(),
-                    sub = u.economy(trip) + " · %d:%02d".format(mins / 60, mins % 60),
-                    size = 36.sp,
-                )
-            }
+        // Row 3: the rest.
+        Row(Modifier.fillMaxWidth().weight(0.8f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TiresTile(v, metric, Modifier.weight(1.4f).fillMaxHeight())
-            ValueTile("Fuel", f0(v[K.FUEL]), "%", Modifier.weight(0.8f).fillMaxHeight(), size = 36.sp)
+            ValueTile("Fuel", f0(v[K.FUEL]), "%", Modifier.weight(0.8f).fillMaxHeight(), size = 32.sp)
+            ValueTile("Battery", f1(volts), "V", Modifier.weight(0.8f).fillMaxHeight(), size = 32.sp,
+                color = if (volts != null && (volts < 12.0 || volts > 15.2)) C.Warn else C.Value)
             val dtc = v[K.DTC]
             val mil = (v[K.MIL] ?: 0.0) > 0
             ValueTile(
                 "Codes", dtc?.toInt()?.toString(), if (mil) "· check engine" else "",
                 Modifier.weight(0.8f).fillMaxHeight(),
-                color = if (dtc == null) C.Value else if (dtc > 0 || mil) C.Bad else C.Good, size = 36.sp,
+                color = if (dtc == null) C.Value else if (dtc > 0 || mil) C.Bad else C.Good, size = 32.sp,
             )
+            Box(Modifier.weight(1.3f).fillMaxHeight().combinedClickable(onLongClick = vm::resetTrip, onClick = {})) {
+                val mins = (trip.seconds / 60).toInt()
+                ValueTile(
+                    "Trip · hold to reset",
+                    "%.1f".format(u.dist(trip.miles)), u.distUnit, Modifier.fillMaxSize(),
+                    sub = u.economy(trip) + " · %d:%02d".format(mins / 60, mins % 60),
+                    size = 32.sp,
+                )
+            }
         }
     }
 }
@@ -171,6 +185,8 @@ private fun StatusBar(
     onDiag: () -> Unit,
     onUnits: () -> Unit,
     onMatrix: () -> Unit,
+    onReplay: () -> Unit,
+    onTheme: () -> Unit,
 ) {
     var now by remember { mutableStateOf(Date()) }
     LaunchedEffect(Unit) { while (true) { now = Date(); delay(1_000) } }
@@ -178,9 +194,10 @@ private fun StatusBar(
     val ampm = remember { SimpleDateFormat("a", Locale.US) }
 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(clock.format(now), color = C.Value, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-        Text(" " + ampm.format(now), color = C.Label, fontSize = 18.sp)
-        if (ambient != null) Text("    %.0f%s outside".format(ambient, tempUnit), color = C.Label, fontSize = 18.sp)
+        val small = compact
+        Text(clock.format(now), color = C.Value, fontSize = if (small) 24.sp else 30.sp, fontWeight = FontWeight.Bold)
+        Text(" " + ampm.format(now), color = C.Label, fontSize = if (small) 14.sp else 18.sp)
+        if (ambient != null) Text(if (small) "   %.0f%s".format(ambient, tempUnit) else "    %.0f%s outside".format(ambient, tempUnit), color = C.Label, fontSize = if (small) 14.sp else 18.sp, maxLines = 1)
         Spacer(Modifier.weight(1f))
         val (dot, label) = when (link) {
             Link.LIVE -> C.Good to (device ?: "OBD")
@@ -188,48 +205,69 @@ private fun StatusBar(
             Link.CONNECTING -> C.Accent to "$detail…"
             Link.RETRYING -> C.Bad to "OBD: $detail"
             Link.IDLE -> C.Dim to "Not connected"
+            Link.REPLAY -> C.Accent to "▶ ${device ?: "replay"}"
         }
         Row(
             Modifier
                 .border(1.dp, C.Stroke, RoundedCornerShape(20.dp))
                 .clickableNoRipple(onConnect)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(10.dp).background(dot, CircleShape))
             Spacer(Modifier.width(8.dp))
-            Text(label, color = C.Label, fontSize = 15.sp, maxLines = 1)
+            Text(label, color = C.Label, fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 240.dp))
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(if (compact) 6.dp else 10.dp))
         Text(
             if (tempUnit == "°C") "Metric" else "Imperial",
             color = C.Label,
-            fontSize = 15.sp,
+            fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, softWrap = false,
             modifier = Modifier
                 .border(1.dp, C.Stroke, RoundedCornerShape(20.dp))
                 .clickableNoRipple(onUnits)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
         )
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(if (compact) 6.dp else 10.dp))
         Text(
             "Matrix",
-            color = Color(0xFF00FF66),
-            fontSize = 15.sp,
-            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            color = C.Matrix,
+            fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, softWrap = false,
+            fontFamily = Fonts.Mono,
             modifier = Modifier
-                .border(1.dp, Color(0xFF00B347), RoundedCornerShape(20.dp))
+                .border(1.dp, C.Matrix.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
                 .clickableNoRipple(onMatrix)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
         )
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(if (compact) 6.dp else 10.dp))
         Text(
-            "Diagnostics",
+            if (C.auto) (if (compact) "◐ ${C.palette.name}" else "Auto · ${C.palette.name}") else C.palette.name,
             color = C.Label,
-            fontSize = 15.sp,
+            fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, softWrap = false,
+            modifier = Modifier
+                .border(1.dp, C.Stroke, RoundedCornerShape(20.dp))
+                .clickableNoRipple(onTheme)
+                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
+        )
+        Spacer(Modifier.width(if (compact) 6.dp else 10.dp))
+        Text(
+            "Replay",
+            color = C.Label,
+            fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, softWrap = false,
+            modifier = Modifier
+                .border(1.dp, C.Stroke, RoundedCornerShape(20.dp))
+                .clickableNoRipple(onReplay)
+                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
+        )
+        Spacer(Modifier.width(if (compact) 6.dp else 10.dp))
+        Text(
+            if (compact) "Diag" else "Diagnostics",
+            color = C.Label,
+            fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, softWrap = false,
             modifier = Modifier
                 .border(1.dp, C.Stroke, RoundedCornerShape(20.dp))
                 .clickableNoRipple(onDiag)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
         )
     }
 }
@@ -253,15 +291,16 @@ private fun TiresTile(v: Map<String, Double>, metric: Boolean, modifier: Modifie
     val all = listOf(K.TIRE_FL, K.TIRE_FR, K.TIRE_RL, K.TIRE_RR).mapNotNull { v[it] }
     // flag a tire 10 % below the average of the four
     val low = all.size == 4 && all.any { it < all.average() * 0.9 }
+    val ts = if (compact) 20.sp else 30.sp
     Tile(if (metric) "Tires · kPa" else "Tires · psi", modifier, if (low) C.Warn else null) {
         Spacer(Modifier.weight(1f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Text(t(K.TIRE_FL), color = C.Value, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            Text(t(K.TIRE_FR), color = C.Value, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Text(t(K.TIRE_FL), color = C.Value, fontSize = ts, lineHeight = ts, fontWeight = FontWeight.Bold)
+            Text(t(K.TIRE_FR), color = C.Value, fontSize = ts, lineHeight = ts, fontWeight = FontWeight.Bold)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Text(t(K.TIRE_RL), color = C.Value, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            Text(t(K.TIRE_RR), color = C.Value, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Text(t(K.TIRE_RL), color = C.Value, fontSize = ts, lineHeight = ts, fontWeight = FontWeight.Bold)
+            Text(t(K.TIRE_RR), color = C.Value, fontSize = ts, lineHeight = ts, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.weight(1f))
     }

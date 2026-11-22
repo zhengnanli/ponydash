@@ -23,6 +23,17 @@ import dev.ponydash.ui.ConnectDialog
 import dev.ponydash.ui.DashScreen
 import dev.ponydash.ui.DiagScreen
 import dev.ponydash.ui.MatrixScreen
+import dev.ponydash.ui.ReplayBar
+import dev.ponydash.ui.ReplayDialog
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 
 class MainActivity : ComponentActivity() {
     private val vm: DashViewModel by viewModels()
@@ -33,6 +44,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         lowRefreshRate()
+        vm.setSystemDark(isSystemDark(resources.configuration))
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -40,10 +52,12 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            MaterialTheme(colorScheme = darkColorScheme(), typography = dev.ponydash.ui.Fonts.typography) {
                 var showConnect by remember { mutableStateOf(false) }
                 var showDiag by remember { mutableStateOf(false) }
                 var showMatrix by remember { mutableStateOf(false) }
+                var showReplay by remember { mutableStateOf(false) }
+                val replay by vm.replay.collectAsState()
                 val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
                     vm.autoStart(res.values.all { it })
                 }
@@ -51,6 +65,8 @@ class MainActivity : ComponentActivity() {
                     if (hasPerms()) vm.autoStart(true) else launcher.launch(perms)
                 }
 
+                androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().background(dev.ponydash.ui.C.Bg)) {
+                Box(Modifier.fillMaxWidth().weight(1f)) {
                 if (showDiag) {
                     DiagScreen(vm) { showDiag = false }
                 } else if (showMatrix) {
@@ -61,9 +77,14 @@ class MainActivity : ComponentActivity() {
                         onOpenConnect = { if (hasPerms()) showConnect = true else launcher.launch(perms) },
                         onOpenDiag = { showDiag = true },
                         onOpenMatrix = { showMatrix = true },
+                        onOpenReplay = { showReplay = true },
                     )
                 }
+                }
+                replay?.let { ReplayBar(vm, it, Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) }
+                }
                 if (showConnect) ConnectDialog(vm) { showConnect = false }
+                if (showReplay) ReplayDialog(vm) { showReplay = false }
             }
         }
     }
@@ -79,6 +100,15 @@ class MainActivity : ComponentActivity() {
             .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight && it.refreshRate >= 29.5f }
             .minByOrNull { it.refreshRate } ?: return
         window.attributes = window.attributes.apply { preferredDisplayModeId = mode.modeId }
+    }
+
+    private fun isSystemDark(c: android.content.res.Configuration) =
+        (c.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+    /** uiMode is in configChanges, so a light/dark switch re-themes without restarting the activity. */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        vm.setSystemDark(isSystemDark(newConfig))
     }
 
     override fun onStart() {

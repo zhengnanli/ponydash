@@ -22,7 +22,9 @@ import java.util.Date
 import java.util.Locale
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.sin
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +33,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 
-enum class Link { IDLE, SIM, CONNECTING, LIVE, RETRYING }
+enum class Link { IDLE, SIM, CONNECTING, LIVE, RETRYING, REPLAY }
 
 data class ConnState(val link: Link, val detail: String = "", val device: String? = null)
 
@@ -145,6 +147,30 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     /** true = °C, bar, km/h, km, L/100 km. */
     val metric = MutableStateFlow(prefs.getBoolean("metric", true))
+
+    /** "Auto" follows the system light/dark setting; otherwise a theme name. */
+    private var themeChoice = prefs.getString("theme", "Auto") ?: "Auto"
+    private var systemDark = true
+
+    fun setSystemDark(dark: Boolean) {
+        systemDark = dark
+        applyTheme()
+    }
+
+    private fun applyTheme() {
+        val auto = themeChoice == "Auto"
+        dev.ponydash.ui.C.auto = auto
+        dev.ponydash.ui.C.palette = dev.ponydash.ui.Themes.byName(
+            if (auto) (if (systemDark) "Midnight" else "Daylight") else themeChoice,
+        )
+    }
+
+    fun cycleTheme() {
+        val names = listOf("Auto") + dev.ponydash.ui.Themes.all.map { it.name }
+        themeChoice = names[(names.indexOf(themeChoice) + 1) % names.size]
+        prefs.edit().putString("theme", themeChoice).apply()
+        applyTheme()
+    }
 
     fun toggleUnits() {
         metric.update { !it }
@@ -275,6 +301,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                         K.TIRE_FL to 197.0, K.TIRE_FR to 200.5, K.TIRE_RR to 198.6, K.TIRE_RL to 197.0,
                     )
                 }
+                values.update { Pids.derive(it + mapOf(K.IAT_B to 30 + pull * 22, "egt11" to 450 + pull * 420, "exh_kpa" to 103 + pull * 95)) }
                 record(values.value)
                 if ((t * 10).toInt() % 3 == 0) {
                     publishHistory()
@@ -331,6 +358,10 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     /** Out of sight for a minute: drop the adapter so Bluetooth and the CPU can sleep. */
     fun onBackground() {
         bgJob?.cancel()
+        if (conn.value.link == Link.REPLAY) {
+            replay.update { it?.copy(playing = false) }
+            return
+        }
         bgJob = viewModelScope.launch {
             delay(60_000)
             val addr = savedDevice
@@ -355,6 +386,97 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------- replay ----------
+
+    val replay = MutableStateFlow<ReplayState?>(null)
+    val recordings = MutableStateFlow<List<Recording>>(emptyList())
+    private var replayData: ReplayData? = null
+    @Volatile private var replaySeekTo: Long? = null
+
+    fun refreshRecordings() {
+        viewModelScope.launch {
+            recordings.value = withContext(Dispatchers.IO) { ReplayData.list(getApplication(), recorder.dir) }
+        }
+    }
+
+    /** Zoomed-plot data: the replay around its playhead, otherwise the live recorder. */
+    fun series(key: String, spanMs: Long): Series {
+        val d = replayData
+        val st = replay.value
+        return if (d != null && st != null && !st.loading) d.series(key, st.pos, spanMs) else recorder.series(key, spanMs)
+    }
+
+    fun startReplay(rec: Recording) {
+        stopSource()
+        replay.value = ReplayState(rec.name, 0, 0, 0, playing = false, speed = 1, loading = true)
+        conn.value = ConnState(Link.REPLAY, "Loading ${rec.name}")
+        sourceJob = viewModelScope.launch {
+            val d = try {
+                withContext(Dispatchers.IO) { ReplayData.parse(rec.name, rec.open()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logLine("Replay failed: ${e.message}")
+                replay.value = null
+                startSim()
+                return@launch
+            }
+            replayData = d
+            logLine("Replaying ${rec.name}: ${d.size} samples")
+            histBuf.clear()
+            minMax.clear()
+            supported.value = Pids.all.map { it.code }.toSet()
+            gmeter.external = true
+            conn.value = ConnState(Link.REPLAY, "Replay", rec.name)
+            val gLat = d.col("g_lat")
+            val gLon = d.col("g_lon")
+            var vt = d.t[0]
+            var idx = -1
+            replay.value = ReplayState(rec.name, d.t[0], d.t[d.size - 1], vt, playing = true, speed = 1)
+            while (isActive) {
+                val st = replay.value ?: break
+                replaySeekTo?.let { vt = it.coerceIn(d.t[0], d.t[d.size - 1]); replaySeekTo = null; idx = -1 }
+                if (st.playing) {
+                    vt += 100L * st.speed
+                    // jump over stops where the engine was off
+                    val i = d.indexAt(vt)
+                    if (i + 1 < d.size && d.t[i + 1] - d.t[i] > 5_000 && vt - d.t[i] > 1_000) vt = d.t[i + 1]
+                }
+                val i = d.indexAt(vt)
+                if (i != idx) {
+                    idx = i
+                    val row = Pids.derive(d.row(i))
+                    values.value = row
+                    record(row)
+                    publishHistory()
+                    if (gLat != null && gLon != null) {
+                        gmeter.feed(gLat[i].takeIf { !it.isNaN() } ?: 0f, gLon[i].takeIf { !it.isNaN() } ?: 0f)
+                    }
+                }
+                val atEnd = vt >= d.t[d.size - 1]
+                replay.value = st.copy(pos = vt.coerceAtMost(d.t[d.size - 1]), playing = st.playing && !atEnd)
+                delay(100)
+            }
+        }
+    }
+
+    fun replayToggle() = replay.update { it?.copy(playing = !it.playing) }
+    fun replaySpeed(x: Int) = replay.update { it?.copy(speed = x) }
+    fun replaySeek(ms: Long) {
+        replaySeekTo = ms
+        replay.update { it?.copy(pos = ms) }
+    }
+
+    /** Leave replay and go back to the car (or the simulator). */
+    fun stopReplay() {
+        stopSource()
+        histBuf.clear()
+        minMax.clear()
+        publishHistory()
+        val addr = savedDevice
+        if (addr != null) connect(addr, prefs.getString("name", null) ?: addr) else startSim()
+    }
+
     fun forgetDevice() {
         prefs.edit().remove("addr").remove("name").apply()
         startSim()
@@ -362,6 +484,9 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun stopSource() {
         sourceJob?.cancel()
+        replay.value = null
+        replayData = null
+        gmeter.external = false
         sourceJob = null
         session = null
         values.value = emptyMap()
@@ -387,8 +512,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 if (!due(r)) continue
                 for (p in std.getValue(r)) {
                     val v = s.read(p) ?: continue
-                    values.update { it + v }
-                    record(v)
+                    values.update { Pids.derive(it + v) }
+                    record(if (K.MAP in v) v + (K.BOOST to values.value.getValue(K.BOOST)) else v)
                     did++
                 }
             }
