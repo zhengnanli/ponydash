@@ -121,11 +121,13 @@ class FlightRecorder(
     }
 
     private fun tick(now: Long, toRing: Boolean, flush: Boolean) {
-        // only the car is recorded: replayed and simulated data would push real driving out of the hour
         val link = conn.value.link
-        val v = if (link == Link.REPLAY || link == Link.SIM) emptyMap() else values.value
+        // The saved hour on disk is real driving only: sim or replay would push it
+        // out. The in-memory ring behind the zoom plots follows whatever is on
+        // screen, so the plots work in the simulator too. Replay has its own source.
+        val toDisk = link != Link.REPLAY && link != Link.SIM
+        val v = if (link == Link.REPLAY) emptyMap() else values.value
         if (v.isNotEmpty()) {
-            if (csv == null || now - lastRow > GAP_MS || now - segStart > SEG_MS) rotate(now)
             val gf = g.value
             val last = keys.size - 1
             val row = FloatArray(keys.size) { i ->
@@ -135,18 +137,23 @@ class FlightRecorder(
                     else -> v[keys[i]]?.toFloat() ?: Float.NaN
                 }
             }
-            val sb = StringBuilder(600)
-            sb.append(tsFmt.format(Instant.ofEpochMilli(now))).append(',').append(now)
-                .append(',').append(conn.value.link.name.lowercase())
-            for (i in keys.indices) {
-                sb.append(',')
-                val d = if (i >= last - 1) row[i].toDouble() else v[keys[i]]
-                if (d != null && !d.isNaN()) sb.append(num(d))
+            if (toDisk) {
+                if (csv == null || now - lastRow > GAP_MS || now - segStart > SEG_MS) rotate(now)
+                val sb = StringBuilder(600)
+                sb.append(tsFmt.format(Instant.ofEpochMilli(now))).append(',').append(now)
+                    .append(',').append(link.name.lowercase())
+                for (i in keys.indices) {
+                    sb.append(',')
+                    val d = if (i >= last - 1) row[i].toDouble() else v[keys[i]]
+                    if (d != null && !d.isNaN()) sb.append(num(d))
+                }
+                csv!!.write(sb.toString())
+                csv!!.newLine()
+                lastRow = now
+                storedMs.value = closedMs + (now - segStart)
+            } else if (csv != null) {
+                closeSeg() // left the car for sim; stop the disk segment but keep filling the ring
             }
-            csv!!.write(sb.toString())
-            csv!!.newLine()
-            lastRow = now
-            storedMs.value = closedMs + (now - segStart)
             if (toRing) synchronized(ring) {
                 ring.addLast(now to row)
                 while (ring.size > RING_MAX || (ring.isNotEmpty() && ring.first().first < now - KEEP_MS)) ring.removeFirst()
