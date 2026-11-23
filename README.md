@@ -68,8 +68,6 @@ the raw ELM327 traffic scrolling by.
 - **Polling by priority:** RPM, speed and manifold pressure every cycle,
   temperatures less often, tire pressures rarely. About 20–24 requests per
   second on an ELM327 v2.3 clone.
-- **Diagnostics screen:** supported-PID list, live values, a raw ELM327
-  console, and a one-tap probe of Ford mode-22 reads.
 - **Simulator** for working on the UI without a car.
 - Fullscreen, landscape, keeps the screen on at a power-saving 30 Hz.
 
@@ -122,8 +120,7 @@ an empty cell means the car had not reported that channel.
 
 ## Safety
 
-The console sends whatever you type to the adapter. Stick to reads (`01xx`,
-`22xxxx`, `AT…`). Don't interact with the tablet while driving.
+Don't interact with the tablet while driving.
 
 ## License
 

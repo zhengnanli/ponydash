@@ -157,26 +157,6 @@ object K {
 }
 
 /**
- * Ford enhanced (mode 22) reads to try from the diagnostics screen. These are
- * read-only ReadDataByIdentifier requests. The IDs come from community lists
- * and are NOT verified on a 2025 Mustang; the raw replies tell us which work.
- */
-data class FordProbe(val header: String, val cmd: String, val what: String)
-
-val FORD_PROBES = listOf(
-    FordProbe("7E0", "22F40C", "RPM via mode 22 (sanity check: should echo 01 0C)"),
-    FordProbe("7E0", "22F45C", "Oil temp via mode 22 mirror of 01 5C"),
-    FordProbe("7E0", "221310", "Engine oil temp (community ID)"),
-    FordProbe("7E0", "221E1C", "Transmission fluid temp (PCM)"),
-    FordProbe("7E1", "221E1C", "Transmission fluid temp (TCM)"),
-    FordProbe("7E0", "2203EC", "Knock / spark retard (community ID)"),
-    FordProbe("726", "222813", "TPMS front-left pressure (BCM)"),
-    FordProbe("726", "222814", "TPMS front-right pressure (BCM)"),
-    FordProbe("726", "222815", "TPMS rear-right pressure (BCM)"),
-    FordProbe("726", "222816", "TPMS rear-left pressure (BCM)"),
-)
-
-/**
  * Ford enhanced reads (mode 22, ReadDataByIdentifier) confirmed on the 2025
  * Mustang EcoBoost by the probe on 2026-11-21. Scales marked "unverified" were
  * inferred from plausible values and still need a cross-check.

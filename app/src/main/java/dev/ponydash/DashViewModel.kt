@@ -10,7 +10,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.ponydash.obd.BleTransport
 import dev.ponydash.obd.Elm327
-import dev.ponydash.obd.FORD_PROBES
 import dev.ponydash.obd.FordPids
 import dev.ponydash.obd.K
 import dev.ponydash.obd.ObdSession
@@ -585,45 +584,6 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetTrip() {
         trip.value = Trip()
-    }
-
-    // ---------- diagnostics ----------
-
-    fun sendRaw(cmd: String) {
-        val s = session ?: return logLine("Not connected to the adapter")
-        val c = cmd.trim().uppercase()
-        if (c.isEmpty()) return
-        viewModelScope.launch {
-            try {
-                val r = busLock.withLock { s.elm.send(c, 5_000) }
-                if (c.startsWith("ATSH")) s.header = c.removePrefix("ATSH").trim()
-                logLine("> $c\n$r")
-            } catch (e: Exception) {
-                logLine("> $c  ✗ ${e.message}")
-            }
-        }
-    }
-
-    fun probeFord() {
-        val s = session ?: return logLine("Not connected to the adapter")
-        viewModelScope.launch {
-            logLine("— Ford mode-22 probe (read-only) —")
-            busLock.withLock {
-            for (p in FORD_PROBES) {
-                try {
-                    s.elm.send("ATSH${p.header}")
-                    val r = s.elm.send(p.cmd, 4_000).replace("\n", " | ")
-                    val ok = r.replace(" ", "").startsWith("62")
-                    logLine("${if (ok) "✓" else "·"} ${p.header} ${p.cmd}  ${p.what}\n    $r")
-                } catch (e: Exception) {
-                    logLine("✗ ${p.header} ${p.cmd}  ${e.message}")
-                }
-            }
-            runCatching { s.elm.send("ATSH7E0") }
-            s.header = "7E0"
-            }
-            logLine("— probe done; header restored to 7E0 —")
-        }
     }
 
     override fun onCleared() {

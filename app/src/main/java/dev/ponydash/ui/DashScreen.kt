@@ -80,7 +80,7 @@ private class Units(val metric: Boolean) {
 }
 
 @Composable
-fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenDiag: () -> Unit, onOpenMatrix: () -> Unit, onOpenReplay: () -> Unit, onOpenRace: () -> Unit) {
+fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenMatrix: () -> Unit, onOpenReplay: () -> Unit, onOpenRace: () -> Unit) {
     val v by vm.values.collectAsState()
     val conn by vm.conn.collectAsState()
     val g by vm.gmeter.state.collectAsState()
@@ -99,7 +99,7 @@ fun DashScreen(vm: DashViewModel, onOpenConnect: () -> Unit, onOpenDiag: () -> U
         Modifier.fillMaxSize().background(C.Bg).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        StatusBar(u.temp(v[K.AMBIENT]), u.tempUnit, conn.link, conn.device, conn.detail, onOpenConnect, onOpenDiag, vm::toggleUnits, onOpenMatrix, onOpenReplay, vm::cycleTheme, onOpenRace)
+        StatusBar(u.temp(v[K.AMBIENT]), u.tempUnit, conn.link, conn.device, conn.detail, onOpenConnect, vm::toggleUnits, onOpenMatrix, onOpenReplay, vm::cycleTheme, onOpenRace)
 
         // Row 1: what you read at the limit. RPM doubles as a shift light.
         Row(Modifier.fillMaxWidth().weight(1.5f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -182,7 +182,6 @@ private fun StatusBar(
     device: String?,
     detail: String,
     onConnect: () -> Unit,
-    onDiag: () -> Unit,
     onUnits: () -> Unit,
     onMatrix: () -> Unit,
     onReplay: () -> Unit,
@@ -268,16 +267,6 @@ private fun StatusBar(
             modifier = Modifier
                 .border(1.dp, C.Stroke, RoundedCornerShape(20.dp))
                 .clickableNoRipple(onReplay)
-                .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
-        )
-        Spacer(Modifier.width(if (compact) 6.dp else 10.dp))
-        Text(
-            if (compact) "Diag" else "Diagnostics",
-            color = C.Label,
-            fontSize = if (compact) 13.sp else 15.sp, maxLines = 1, softWrap = false,
-            modifier = Modifier
-                .border(1.dp, C.Stroke, RoundedCornerShape(20.dp))
-                .clickableNoRipple(onDiag)
                 .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
         )
     }
